@@ -1,0 +1,19 @@
+{
+  "name": "omni-energy-lab-3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "OmniEnergy Lab 3D — Florida 5th Grade NGSSS Science Standards Interactive 3D Energy Laboratory",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5173"
+  },
+  "dependencies": {
+    "three": "^0.187.0",
+    "vite": "^8.3.8"
+  },
+  "devDependencies": {
+    "vite-plugin-singlefile": "^2.3.4"
+  }
+}

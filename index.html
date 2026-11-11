@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>OmniEnergy Lab 3D — Florida 5th Grade Science Interactive Energy Laboratory</title>
+    <meta
+      name="description"
+      content="Interactive 3D Florida 5th Grade NGSSS Science Energy Laboratory exploring Sound, Light, Thermal, Mechanical, Chemical, and Electrical energy (SC.5.P.10.1, SC.5.P.10.2, SC.5.P.10.4)."
+    />
+    <link rel="stylesheet" href="/src/styles/main.css" />
+  </head>
+  <body>
+    <div id="app-shell">
+      <!-- WebGL2 3D Viewport -->
+      <main id="viewport-container" aria-label="3D Interactive Science Laboratory">
+        <canvas id="lab-canvas"></canvas>
+        <!-- Projected 3D Annotations (Overview Station Pins & Mirror Incidence/Reflection Readouts) -->
+        <div id="overlay-markers" aria-hidden="true"></div>
+      </main>
+
+      <!-- Sticky Top Tab Navigation Bar -->
+      <header id="top-nav" role="navigation" aria-label="Laboratory Station Navigation">
+        <div class="brand-cluster">
+          <div class="brand-emblem" aria-hidden="true">
+            <span class="brand-core"></span>
+          </div>
+          <div class="brand-titles">
+            <h1 id="app-title">OmniEnergy Lab 3D</h1>
+            <span class="brand-sub">Florida Grade 5 Science • NGSSS</span>
+          </div>
+        </div>
+
+        <nav id="station-tabs" class="tab-strip" aria-label="Science Stations">
+          <button id="tab-overview" class="nav-tab active" data-station="overview" type="button">
+            <span class="tab-dot overview-dot"></span>
+            <span>Overview</span>
+          </button>
+          <button id="tab-sound" class="nav-tab" data-station="sound" type="button">
+            <span class="tab-num">01</span>
+            <span>Sound</span>
+          </button>
+          <button id="tab-light" class="nav-tab" data-station="light" type="button">
+            <span class="tab-num">02</span>
+            <span>Light</span>
+          </button>
+          <button id="tab-thermal" class="nav-tab" data-station="thermal" type="button">
+            <span class="tab-num">03</span>
+            <span>Thermal</span>
+          </button>
+          <button id="tab-mechanical" class="nav-tab" data-station="mechanical" type="button">
+            <span class="tab-num">04</span>
+            <span>Mechanical</span>
+          </button>
+          <button id="tab-chemical" class="nav-tab" data-station="chemical" type="button">
+            <span class="tab-num">05</span>
+            <span>Chemical</span>
+          </button>
+          <button id="tab-electrical" class="nav-tab" data-station="electrical" type="button">
+            <span class="tab-num">06</span>
+            <span>Electrical</span>
+          </button>
+        </nav>
+
+        <div class="utility-actions">
+          <button id="btn-standards-modal" class="util-btn" type="button" title="View Florida 5th Grade NGSSS Benchmarks">
+            <span>FL NGSSS</span>
+          </button>
+          <button id="btn-audio-toggle" class="util-btn audio-active" type="button" title="Toggle Synthesized Lab Audio">
+            <span id="audio-status-label">Audio: ON</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Classroom Overview Welcome Banner (Visible in Overview Mode) -->
+      <section id="overview-hud" class="glass-panel overview-card" aria-live="polite">
+        <div class="overview-head">
+          <span class="fl-tag">FLORIDA NGSSS GRADE 5 STEM LAB</span>
+          <h2>Select Any 3D Workbench or Station Tab to Investigate</h2>
+        </div>
+        <p>
+          Explore 6 hands-on apparatus benches modeling <strong>SC.5.P.10.1</strong> (Forms of Energy),
+          <strong>SC.5.P.10.2</strong> (Motion &amp; Change), and <strong>SC.5.P.10.4</strong> (Energy Transformations).
+          Drag to orbit, pinch/scroll to zoom, or tap directly on 3D lab equipment.
+        </p>
+      </section>
+
+      <!-- Dedicated Station Investigation Dock (Visible on Stations 1–6) -->
+      <aside id="station-hud" class="glass-panel station-dock hidden" aria-live="polite">
+        <div class="station-header">
+          <div>
+            <div id="hud-benchmarks" class="benchmark-row"></div>
+            <h2 id="hud-station-title">Station Title</h2>
+            <p id="hud-station-subtitle" class="station-subtitle"></p>
+          </div>
+          <button id="btn-collapse-hud" class="icon-btn" type="button" title="Minimize/Expand Panel" aria-label="Minimize or Expand Panel">
+            <span id="collapse-glyph">–</span>
+          </button>
+        </div>
+
+        <div id="station-dock-body" class="dock-scroll-body">
+          <!-- 1. How to Investigate Collapsible Drawer -->
+          <div class="drawer-section">
+            <button id="btn-toggle-howto" class="drawer-toggle" type="button" aria-expanded="false">
+              <span>📋 How to Investigate (Step-by-Step)</span>
+              <span id="howto-chevron" class="chevron">▾</span>
+            </button>
+            <ol id="howto-list" class="howto-steps hidden"></ol>
+          </div>
+
+          <!-- 2. Dynamic Live Controls & Telemetry Container -->
+          <div id="station-controls-container" class="controls-container"></div>
+
+          <!-- 3. Scientist's Challenge Inquiry Callout -->
+          <div class="challenge-card">
+            <div class="challenge-header">
+              <span class="challenge-title">🔬 Scientist’s Challenge</span>
+            </div>
+            <ul id="inquiry-list" class="inquiry-questions"></ul>
+            <button id="btn-toggle-insight" class="insight-btn" type="button">
+              Check Florida Benchmark Explanation
+            </button>
+            <p id="science-insight-text" class="insight-body hidden"></p>
+          </div>
+
+          <!-- 4. Station Reset Button -->
+          <div class="station-footer">
+            <button id="btn-reset-station" class="reset-btn" type="button">
+              ⟲ Reset Apparatus
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Bottom Camera / Touch Hint Bar -->
+      <div id="camera-hint" class="camera-hint">
+        Drag to Orbit 3D View • Scroll/Pinch to Zoom • Click or Drag 3D Lab Parts
+      </div>
+
+      <!-- Florida Grade 5 NGSSS Standards Reference Modal -->
+      <div id="standards-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-heading">
+        <div class="glass-panel modal-card">
+          <div class="modal-header">
+            <div>
+              <span class="fl-tag">CURRICULUM ALIGNMENT</span>
+              <h2 id="modal-heading">Florida 5th Grade NGSSS Science Standards</h2>
+            </div>
+            <button id="btn-close-modal" class="icon-btn" type="button" aria-label="Close Standards Modal">✕</button>
+          </div>
+          <div id="standards-modal-content" class="standards-grid"></div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

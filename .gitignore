@@ -1,0 +1,11 @@
+node_modules/
+.gemini
+.bash*
+.profile
+.gitconfig
+.npm/
+.cache/
+.config/
+.local/
+.DS_Store
+*.log
