@@ -11,24 +11,27 @@ export class LightStation {
 
     this.mode = 'reflection'; // 'reflection' | 'refraction' | 'shadow'
 
-    // Mode A: Laser & Mirror Puzzle state
-    // Default angles bounce near the baffles/target so students rotate mirrors slightly to hit the sensor!
-    this.mirrorAngles = [36, 52, -38]; // degrees around Y
+    // Mode A: 4-Mirror Laser Reflection Puzzle + Straight-On (0°) Retro-Reflection Demo
+    this.mirrorAngles = [36, 52, -38, -35]; // Solution: [45, 45, -45, -45]; Straight-on demo: Mirror 1 = 90°
     this.sensorHit = false;
+    this.retroHit = false; // true when beam hits a mirror at 0° straight-on and bounces directly back!
     this.wasSensorHit = false;
-    this.reflectionAnnotations = []; // [{ worldPos, incDeg, refDeg }]
+    this.reflectionAnnotations = []; // [{ mirrorNumber, worldPos, angleDeg, isStraightBack }]
+    this.returnPulses = [];
+    this.retroSegment = null;
     this.draggingMirrorIdx = -1;
 
     // Mode B: Refraction Chamber state
-    this.waterLevel = 0.72; // 0.35 -> 0.9
-    this.pencilOffset = 0.0; // -0.25 -> 0.25
-    this.prismAngle = 14; // degrees
-    this.showRefractionGuide = true;
+    this.waterLevel = 0.72;
+    this.pencilOffset = 0.0;
+    this.prismAngle = 14;
 
     // Mode C: Shadow Lab state
+    // Clicking the 3D object cycles shape; Side panel controls Opaque / Translucent / Transparent (and also shows shape!)
+    this.shadowShape = 'block'; // 'block' | 'star' | 'circle' | 'puppet'
     this.blockMaterial = 'opaque'; // 'opaque' | 'translucent' | 'transparent'
-    this.lightDistance = 0.55; // 0 (close to block = huge shadow) -> 1 (far = crisp smaller shadow)
-    this.lightLateral = 0.0; // -0.3 -> 0.3
+    this.lightDistance = 0.55;
+    this.lightLateral = 0.0;
     this.draggingLight = false;
 
     this.interactables = [];
@@ -43,11 +46,11 @@ export class LightStation {
   _buildOpticalBreadboard() {
     const boardTex = ProceduralTextures.getOpticalBreadboardTexture();
     const board = new THREE.Mesh(
-      new RoundedBoxGeometry(3.12, 0.032, 1.48, 3, 0.008),
+      new RoundedBoxGeometry(3.16, 0.032, 1.5, 3, 0.008),
       new THREE.MeshStandardMaterial({
         map: boardTex,
-        roughness: 0.42,
-        metalness: 0.65
+        roughness: 0.45,
+        metalness: 0.6
       })
     );
     board.position.y = 0.016;
@@ -56,7 +59,7 @@ export class LightStation {
   }
 
   // =========================================================================
-  // MODE A: LASER & MIRROR REFLECTION PUZZLE
+  // MODE A: 4-MIRROR LASER PUZZLE + STRAIGHT-ON (0°) BOUNCE-BACK DEMO
   // =========================================================================
   _buildModeReflection() {
     this.reflectionGroup = new THREE.Group();
@@ -68,48 +71,56 @@ export class LightStation {
       color: 0x1e293b,
       bumpMap: brushed,
       bumpScale: 0.004,
-      roughness: 0.3,
-      metalness: 0.85
+      roughness: 0.32,
+      metalness: 0.82
     });
     const brassMat = new THREE.MeshStandardMaterial({
       color: 0xeab308,
       roughness: 0.25,
-      metalness: 0.9
+      metalness: 0.88
     });
 
-    // HeNe Laser Emitter at (-1.22, 0.16, 0.36) firing +X
-    this.laserOrigin = new THREE.Vector2(-1.05, 0.36);
+    // HeNe Laser Emitter at (-1.24, 0.16, 0.38) firing +X
+    this.laserOrigin = new THREE.Vector2(-1.05, 0.38);
     this.laserDir = new THREE.Vector2(1, 0);
 
     const laserGroup = new THREE.Group();
-    laserGroup.position.set(-1.22, 0, 0.36);
+    laserGroup.position.set(-1.24, 0, 0.38);
     this.reflectionGroup.add(laserGroup);
 
     const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.075, 0.12, 20), mountMat);
     pedestal.position.y = 0.06;
     laserGroup.add(pedestal);
 
-    const barrel = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.09, 0.1, 3, 0.014), mountMat);
+    const barrel = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.09, 0.11, 3, 0.014), mountMat);
     barrel.position.y = 0.16;
     barrel.castShadow = true;
     laserGroup.add(barrel);
 
+    // Coaxial Retro-Reflection Detector Ring around laser aperture (lights up when ray bounces straight back!)
+    this.retroRingMat = new THREE.MeshStandardMaterial({
+      color: 0x475569,
+      emissive: new THREE.Color(0xf59e0b),
+      emissiveIntensity: 0.08,
+      roughness: 0.25
+    });
+    const retroRing = new THREE.Mesh(new THREE.TorusGeometry(0.036, 0.009, 12, 24), this.retroRingMat);
+    retroRing.rotation.y = Math.PI / 2;
+    retroRing.position.set(0.176, 0.16, 0);
+    laserGroup.add(retroRing);
+
     const aperture = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.022, 0.022, 0.03, 16),
-      new THREE.MeshStandardMaterial({
-        color: 0x22d3ee,
-        emissive: new THREE.Color(0x22d3ee),
-        emissiveIntensity: 2.2
-      })
+      new THREE.CylinderGeometry(0.018, 0.018, 0.03, 16),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee })
     );
     aperture.rotation.z = Math.PI / 2;
     aperture.position.set(0.175, 0.16, 0);
     laserGroup.add(aperture);
 
-    // Opaque Optical Baffles (Obstacles students must bounce around!)
+    // 2 Opaque Optical Baffles creating a true 4-mirror labyrinth
     this.obstacles = [
-      { x: -0.48, z: 0.28, w: 0.07, d: 0.54 },
-      { x: 0.24, z: 0.12, w: 0.07, d: 0.54 }
+      { x: -0.26, z: 0.22, w: 0.07, d: 0.56 },
+      { x: 0.74, z: -0.22, w: 0.07, d: 0.56 }
     ];
     const baffleMat = new THREE.MeshStandardMaterial({
       color: 0x0f172a,
@@ -130,19 +141,21 @@ export class LightStation {
       this.reflectionGroup.add(stripe);
     });
 
-    // 3 Rotatable Front-Surface Gimbal Mirrors
-    // Placed so angles [45, -45, 45] route cleanly around both baffles straight into the target!
+    // 4 Rotatable Front-Surface Gimbal Mirrors
+    // Solution [45, 45, -45, -45]:
+    // (-1.05, 0.38) -> M1(-0.76, 0.38) -> M2(-0.76, -0.44) -> M3(0.32, -0.44) -> M4(0.32, 0.36) -> Sensor(1.16, 0.36)
     const mirrorCoords = [
-      { x: -0.82, z: 0.36 },
-      { x: -0.82, z: -0.44 },
-      { x: 0.88, z: -0.44 }
+      { x: -0.76, z: 0.38 },
+      { x: -0.76, z: -0.44 },
+      { x: 0.32, z: -0.44 },
+      { x: 0.32, z: 0.36 }
     ];
     this.mirrors = [];
 
     const glassMirrorMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
-      roughness: 0.03,
-      metalness: 0.99
+      roughness: 0.04,
+      metalness: 0.98
     });
 
     mirrorCoords.forEach((mc, idx) => {
@@ -150,7 +163,7 @@ export class LightStation {
       mGroup.position.set(mc.x, 0, mc.z);
       this.reflectionGroup.add(mGroup);
 
-      const baseRing = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.125, 0.025, 28), brassMat);
+      const baseRing = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.12, 0.025, 28), brassMat);
       baseRing.position.y = 0.0125;
       baseRing.userData = { mirrorIdx: idx };
       mGroup.add(baseRing);
@@ -159,12 +172,12 @@ export class LightStation {
       gimbal.position.y = 0.16;
       mGroup.add(gimbal);
 
-      const backing = new THREE.Mesh(new RoundedBoxGeometry(0.26, 0.19, 0.018, 2, 0.004), mountMat);
+      const backing = new THREE.Mesh(new RoundedBoxGeometry(0.25, 0.19, 0.018, 2, 0.004), mountMat);
       backing.castShadow = true;
       backing.userData = { mirrorIdx: idx };
       gimbal.add(backing);
 
-      const reflectiveFace = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.17), glassMirrorMat);
+      const reflectiveFace = new THREE.Mesh(new THREE.PlaneGeometry(0.23, 0.17), glassMirrorMat);
       reflectiveFace.position.z = 0.011;
       reflectiveFace.userData = { mirrorIdx: idx };
       gimbal.add(reflectiveFace);
@@ -175,17 +188,17 @@ export class LightStation {
       reflectiveBack.userData = { mirrorIdx: idx };
       gimbal.add(reflectiveBack);
 
-      const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.04, 18), brassMat);
+      const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.04, 18), brassMat);
       knob.position.y = 0.115;
       knob.userData = { mirrorIdx: idx };
       gimbal.add(knob);
 
       this.interactables.push(baseRing, backing, reflectiveFace, reflectiveBack, knob);
-      this.mirrors.push({ group: mGroup, gimbal, x: mc.x, z: mc.z, halfWidth: 0.13 });
+      this.mirrors.push({ group: mGroup, gimbal, x: mc.x, z: mc.z, halfWidth: 0.125 });
     });
 
-    // Light Sensor Target Dome at (0.88, 0.16, 0.34)
-    this.sensorTarget = { x: 0.88, z: 0.34, radius: 0.095 };
+    // Light Sensor Target Dome at (1.16, 0.16, 0.36)
+    this.sensorTarget = { x: 1.16, z: 0.36, radius: 0.095 };
     const sensorGroup = new THREE.Group();
     sensorGroup.position.set(this.sensorTarget.x, 0, this.sensorTarget.z);
     this.reflectionGroup.add(sensorGroup);
@@ -198,20 +211,30 @@ export class LightStation {
       color: 0x334155,
       emissive: new THREE.Color(0x10b981),
       emissiveIntensity: 0.08,
-      roughness: 0.2,
-      metalness: 0.2
+      roughness: 0.22,
+      metalness: 0.15
     });
     const sensorDome = new THREE.Mesh(new THREE.SphereGeometry(0.078, 28, 28), this.sensorDomeMat);
     sensorDome.position.y = 0.16;
     sensorGroup.add(sensorDome);
 
-    this.sensorPointLight = new THREE.PointLight(0x10b981, 0, 1.6);
+    this.sensorPointLight = new THREE.PointLight(0x10b981, 0, 1.4);
     this.sensorPointLight.position.set(this.sensorTarget.x, 0.26, this.sensorTarget.z);
     this.reflectionGroup.add(this.sensorPointLight);
 
-    // Dynamic Laser Ray Segments + Dashed Normal Lines pool
+    // Dynamic Laser Ray Segments + Return-Bounce Pulse Spheres (for 0° Straight-On Reflection!)
     this.beamGroup = new THREE.Group();
     this.reflectionGroup.add(this.beamGroup);
+
+    this.returnPulseGroup = new THREE.Group();
+    this.reflectionGroup.add(this.returnPulseGroup);
+    for (let i = 0; i < 5; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0 });
+      const sp = new THREE.Mesh(new THREE.SphereGeometry(0.013, 12, 12), mat);
+      this.returnPulseGroup.add(sp);
+      this.returnPulses.push({ mesh: sp, mat, phase: i / 5 });
+    }
+
     this._updateReflectionRays();
   }
 
@@ -221,8 +244,9 @@ export class LightStation {
       if (c.geometry) c.geometry.dispose();
     }
     this.reflectionAnnotations = [];
+    this.retroHit = false;
+    this.retroSegment = null;
 
-    // Apply mirror rotations
     this.mirrors.forEach((m, i) => {
       m.gimbal.rotation.y = THREE.MathUtils.degToRad(this.mirrorAngles[i]);
     });
@@ -230,6 +254,11 @@ export class LightStation {
     const beamCoreMat = new THREE.MeshBasicMaterial({ color: 0xe0f2fe });
     const beamGlowMat = new THREE.MeshBasicMaterial({
       color: 0x22d3ee,
+      transparent: true,
+      opacity: 0.42
+    });
+    const retroGlowMat = new THREE.MeshBasicMaterial({
+      color: 0xf59e0b,
       transparent: true,
       opacity: 0.48
     });
@@ -242,18 +271,18 @@ export class LightStation {
     let origin = this.laserOrigin.clone();
     let dir = this.laserDir.clone().normalize();
     let hitSensor = false;
+    this._lastMirrorHit = -1;
 
-    for (let bounce = 0; bounce < 5; bounce++) {
-      let bestT = 3.2;
+    for (let bounce = 0; bounce < 8; bounce++) {
+      let bestT = 3.4;
       let hitType = 'end';
       let hitNormal = null;
       let hitMirrorIndex = -1;
 
-      // 1. Check mirror intersections in 2D (x, z)
+      // 1. Check 4 mirrors
       this.mirrors.forEach((m, idx) => {
         if (idx === this._lastMirrorHit && bounce > 0) return;
         const rad = THREE.MathUtils.degToRad(this.mirrorAngles[idx]);
-        // Mirror plane tangent in XZ when rotation.y = rad: local X=(cos rad, -sin rad)
         const tx = Math.cos(rad);
         const tz = -Math.sin(rad);
         const p1 = new THREE.Vector2(m.x - tx * m.halfWidth, m.z - tz * m.halfWidth);
@@ -270,27 +299,48 @@ export class LightStation {
         }
       });
 
-      // 2. Check obstacle AABB intersections
+      // 2. Check obstacle AABBs
       this.obstacles.forEach((ob) => {
-        const t = this._rayBoxIntersect(origin, dir, ob.x - ob.w / 2, ob.z - ob.d / 2, ob.x + ob.w / 2, ob.z + ob.d / 2);
+        const t = this._rayBoxIntersect(
+          origin,
+          dir,
+          ob.x - ob.w / 2,
+          ob.z - ob.d / 2,
+          ob.x + ob.w / 2,
+          ob.z + ob.d / 2
+        );
         if (t !== null && t > 0.01 && t < bestT) {
           bestT = t;
           hitType = 'obstacle';
         }
       });
 
-      // 3. Check Sensor Target circle intersection
-      const tSensor = this._rayCircleIntersect(origin, dir, this.sensorTarget.x, this.sensorTarget.z, this.sensorTarget.radius);
+      // 3. Check Sensor Target
+      const tSensor = this._rayCircleIntersect(
+        origin,
+        dir,
+        this.sensorTarget.x,
+        this.sensorTarget.z,
+        this.sensorTarget.radius
+      );
       if (tSensor !== null && tSensor > 0.01 && tSensor < bestT) {
         bestT = tSensor;
         hitType = 'sensor';
       }
 
-      // Clamp inside optical breadboard bounds
+      // 4. Check Laser Aperture Retro-Detector when returning backward toward (-1.06, 0.38)
+      if (bounce > 0 && dir.x < -0.8) {
+        const tRetro = this._rayCircleIntersect(origin, dir, -1.05, 0.38, 0.045);
+        if (tRetro !== null && tRetro > 0.01 && tRetro <= bestT) {
+          bestT = tRetro;
+          hitType = 'retro';
+        }
+      }
+
       const endPt = origin.clone().addScaledVector(dir, bestT);
-      if (Math.abs(endPt.x) > 1.52 || Math.abs(endPt.y) > 0.7) {
-        const tx = dir.x > 0 ? (1.52 - origin.x) / dir.x : dir.x < 0 ? (-1.52 - origin.x) / dir.x : 99;
-        const tz = dir.y > 0 ? (0.7 - origin.y) / dir.y : dir.y < 0 ? (-0.7 - origin.y) / dir.y : 99;
+      if (Math.abs(endPt.x) > 1.54 || Math.abs(endPt.y) > 0.72) {
+        const tx = dir.x > 0 ? (1.54 - origin.x) / dir.x : dir.x < 0 ? (-1.54 - origin.x) / dir.x : 99;
+        const tz = dir.y > 0 ? (0.72 - origin.y) / dir.y : dir.y < 0 ? (-0.72 - origin.y) / dir.y : 99;
         const tBound = Math.max(0.02, Math.min(bestT, tx, tz));
         if (tBound < bestT) {
           bestT = tBound;
@@ -299,11 +349,17 @@ export class LightStation {
         }
       }
 
-      // Draw volumetric laser cylinder from origin to endPt at y = 0.16
-      this._addBeamSegment(this.beamGroup, origin, endPt, 0.16, beamCoreMat, beamGlowMat);
+      const useAmberReturn = hitType === 'retro' || this.retroHit;
+      this._addBeamSegment(
+        this.beamGroup,
+        origin,
+        endPt,
+        0.16,
+        beamCoreMat,
+        useAmberReturn ? retroGlowMat : beamGlowMat
+      );
 
-      // Glowing laser spot at hit point
-      const spot = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 12), beamCoreMat);
+      const spot = new THREE.Mesh(new THREE.SphereGeometry(0.013, 12, 12), beamCoreMat);
       spot.position.set(endPt.x, 0.16, endPt.y);
       this.beamGroup.add(spot);
 
@@ -311,10 +367,14 @@ export class LightStation {
         hitSensor = true;
         break;
       }
+      if (hitType === 'retro') {
+        this.retroHit = true;
+        this.retroSegment = { from: origin.clone(), to: endPt.clone() };
+        break;
+      }
 
       if (hitType === 'mirror' && hitNormal) {
         this._lastMirrorHit = hitMirrorIndex;
-        // Draw dashed Normal Line perpendicular to mirror surface
         const nEnd = endPt.clone().addScaledVector(hitNormal, 0.24);
         const lineGeo = new THREE.BufferGeometry().setFromPoints([
           new THREE.Vector3(endPt.x, 0.162, endPt.y),
@@ -324,21 +384,27 @@ export class LightStation {
         nLine.computeLineDistances();
         this.beamGroup.add(nLine);
 
-        // Compute Angle of Incidence (= Angle of Reflection!)
         const cosTheta = Math.min(1, Math.max(-1, -dir.dot(hitNormal)));
         const angleDeg = Math.round(THREE.MathUtils.radToDeg(Math.acos(cosTheta)));
+        const isStraightBack = angleDeg <= 3;
+
+        if (isStraightBack) {
+          this.retroHit = true;
+          this.retroSegment = { from: endPt.clone(), to: origin.clone() };
+        }
 
         const worldAnchor = new THREE.Vector3(endPt.x, 0.34, endPt.y);
         this.reflectionGroup.localToWorld(worldAnchor);
         this.reflectionAnnotations.push({
           mirrorNumber: hitMirrorIndex + 1,
           worldPos: worldAnchor,
-          angleDeg
+          angleDeg,
+          isStraightBack
         });
 
-        // Reflect ray: r = d - 2(d·n)n
         dir = dir.clone().sub(hitNormal.clone().multiplyScalar(2 * dir.dot(hitNormal))).normalize();
         origin = endPt;
+        if (isStraightBack && bounce >= 1) break;
       } else {
         break;
       }
@@ -346,9 +412,12 @@ export class LightStation {
     this._lastMirrorHit = -1;
 
     this.sensorHit = hitSensor;
-    this.sensorDomeMat.emissiveIntensity = hitSensor ? 2.4 : 0.08;
+    this.sensorDomeMat.emissiveIntensity = hitSensor ? 1.8 : 0.08;
     this.sensorDomeMat.color.setHex(hitSensor ? 0x34d399 : 0x334155);
-    this.sensorPointLight.intensity = hitSensor ? 2.2 : 0;
+    this.sensorPointLight.intensity = hitSensor ? 1.8 : 0;
+
+    this.retroRingMat.emissiveIntensity = this.retroHit ? 1.9 : 0.08;
+    this.retroRingMat.color.setHex(this.retroHit ? 0xfbbf24 : 0x475569);
 
     if (hitSensor && !this.wasSensorHit && this.isActive) {
       this.audio.playSensorSuccess();
@@ -363,18 +432,14 @@ export class LightStation {
     if (len < 0.005) return;
     const midX = (pA.x + pB.x) / 2;
     const midZ = (pA.y + pB.y) / 2;
-    const angle = Math.atan2(dx, dz);
+    const dir3 = new THREE.Vector3(dx, 0, dz).normalize();
 
     const core = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.0045, len, 10), coreMat);
-    core.rotation.x = Math.PI / 2;
-    core.rotation.z = -angle;
-    // Simpler exact orientation using quaternion from +Y to direction:
-    const dir3 = new THREE.Vector3(dx, 0, dz).normalize();
     core.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir3);
     core.position.set(midX, y, midZ);
     parent.add(core);
 
-    const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, len, 12), glowMat);
+    const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, len, 12), glowMat);
     glow.quaternion.copy(core.quaternion);
     glow.position.copy(core.position);
     parent.add(glow);
@@ -424,7 +489,6 @@ export class LightStation {
     this.refractionGroup.position.y = 0.032;
     this.root.add(this.refractionGroup);
 
-    // --- Apparatus 1: Borosilicate Glass Beaker with Water & Pencil (Left) ---
     const beakerStage = new THREE.Group();
     beakerStage.position.set(-0.68, 0, 0.06);
     this.refractionGroup.add(beakerStage);
@@ -436,11 +500,10 @@ export class LightStation {
     pad.position.y = 0.012;
     beakerStage.add(pad);
 
-    // Outer Borosilicate Glass Cylinder + Bottom Disk + Pour Spout Rim
     const glassMat = new THREE.MeshPhysicalMaterial({
       color: 0xe0f2fe,
       transparent: true,
-      opacity: 0.32,
+      opacity: 0.3,
       roughness: 0.05,
       metalness: 0.05,
       ior: 1.5,
@@ -463,7 +526,6 @@ export class LightStation {
     beakerLip.position.y = 0.028 + beakerH;
     beakerStage.add(beakerLip);
 
-    // Graduation white tick marks along front of beaker
     const tickMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.75 });
     for (let i = 1; i <= 4; i++) {
       const tick = new THREE.Mesh(new THREE.PlaneGeometry(0.055, 0.005), tickMat);
@@ -471,7 +533,6 @@ export class LightStation {
       beakerStage.add(tick);
     }
 
-    // Water volume inside beaker
     const waterMat = new THREE.MeshPhysicalMaterial({
       color: 0x38bdf8,
       transparent: true,
@@ -480,7 +541,10 @@ export class LightStation {
       ior: 1.333,
       depthWrite: false
     });
-    this.waterMesh = new THREE.Mesh(new THREE.CylinderGeometry(beakerR - 0.008, beakerR - 0.008, 1, 40), waterMat);
+    this.waterMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(beakerR - 0.008, beakerR - 0.008, 1, 40),
+      waterMat
+    );
     beakerStage.add(this.waterMesh);
 
     this.meniscusRing = new THREE.Mesh(
@@ -496,8 +560,6 @@ export class LightStation {
     this.meniscusRing.rotation.x = -Math.PI / 2;
     beakerStage.add(this.meniscusRing);
 
-    // Split Pencil (Upper Air Portion + Submerged Refracted/Magnified Portion!)
-    // Why split at exact water surface plane? Because in real life n_water = 1.33 bends light rays at the air-water boundary, shifting & magnifying the submerged shaft!
     this.pencilUpperGroup = new THREE.Group();
     this.pencilLowerGroup = new THREE.Group();
     beakerStage.add(this.pencilUpperGroup);
@@ -509,7 +571,7 @@ export class LightStation {
     this._populatePencilMesh(this.pencilUpperGroup, [this.clipPlaneAbove]);
     this._populatePencilMesh(this.pencilLowerGroup, [this.clipPlaneBelow]);
 
-    // --- Apparatus 2: Equilateral Optical Prism & Rainbow Dispersion (Right) ---
+    // Prism Dispersion Stage
     this.prismStage = new THREE.Group();
     this.prismStage.position.set(0.48, 0, 0.04);
     this.refractionGroup.add(this.prismStage);
@@ -520,12 +582,10 @@ export class LightStation {
       metalness: 0.8
     });
 
-    // White Light Collimator Emitter
     const emitter = new THREE.Mesh(new RoundedBoxGeometry(0.28, 0.1, 0.1, 3, 0.012), mountMat);
     emitter.position.set(-0.56, 0.18, 0.08);
     this.prismStage.add(emitter);
 
-    // Turntable & Crystal Flint-Glass Triangular Prism
     const turntable = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.04, 32), mountMat);
     turntable.position.set(0, 0.02, 0);
     this.prismStage.add(turntable);
@@ -533,7 +593,7 @@ export class LightStation {
     const prismGlassMat = new THREE.MeshPhysicalMaterial({
       color: 0xf8fafc,
       transparent: true,
-      opacity: 0.52,
+      opacity: 0.5,
       roughness: 0.03,
       metalness: 0.08,
       ior: 1.62,
@@ -546,14 +606,12 @@ export class LightStation {
     this.prismStage.add(this.prismMesh);
     this.interactables.push(this.prismMesh);
 
-    // Glowing prism wireframe edges for ultra-crisp optical geometry readability
     const prismEdges = new THREE.LineSegments(
       new THREE.EdgesGeometry(this.prismMesh.geometry),
       new THREE.LineBasicMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.65 })
     );
     this.prismMesh.add(prismEdges);
 
-    // Curved Observation Projection Screen on the right
     const screenMesh = new THREE.Mesh(
       new RoundedBoxGeometry(0.035, 0.46, 0.68, 2, 0.008),
       new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.85, metalness: 0.02 })
@@ -569,36 +627,13 @@ export class LightStation {
   }
 
   _populatePencilMesh(group, clippingPlanes) {
-    const yellowMat = new THREE.MeshStandardMaterial({
-      color: 0xfacc15,
-      roughness: 0.38,
-      clippingPlanes
-    });
-    const woodConeMat = new THREE.MeshStandardMaterial({
-      color: 0xd6a87c,
-      roughness: 0.6,
-      clippingPlanes
-    });
-    const graphiteMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.3,
-      metalness: 0.4,
-      clippingPlanes
-    });
-    const ferruleMat = new THREE.MeshStandardMaterial({
-      color: 0xd4af37,
-      roughness: 0.25,
-      metalness: 0.88,
-      clippingPlanes
-    });
-    const eraserMat = new THREE.MeshStandardMaterial({
-      color: 0xf472b6,
-      roughness: 0.75,
-      clippingPlanes
-    });
+    const yellowMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.38, clippingPlanes });
+    const woodConeMat = new THREE.MeshStandardMaterial({ color: 0xd6a87c, roughness: 0.6, clippingPlanes });
+    const graphiteMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.4, clippingPlanes });
+    const ferruleMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.25, metalness: 0.88, clippingPlanes });
+    const eraserMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.75, clippingPlanes });
 
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.46, 6), yellowMat);
-    group.add(shaft);
+    group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.46, 6), yellowMat));
 
     const woodTip = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.055, 16), woodConeMat);
     woodTip.rotation.x = Math.PI;
@@ -620,37 +655,30 @@ export class LightStation {
   }
 
   _updateRefractionScene() {
-    // Update water height & clipping planes
     const waterH = 0.42 * this.waterLevel;
     this.waterMesh.scale.y = waterH;
     this.waterMesh.position.y = 0.028 + waterH / 2;
     const surfaceLocalY = 0.028 + waterH;
     this.meniscusRing.position.y = surfaceLocalY + 0.001;
-
-    // Update world-space clipping plane constants dynamically in update()
     this._waterSurfaceLocalY = surfaceLocalY;
 
-    // Position upper pencil vs submerged refracted/magnified lower pencil
     const tilt = -0.44;
     const baseX = this.pencilOffset * 0.14;
     this.pencilUpperGroup.position.set(baseX, 0.31, 0);
     this.pencilUpperGroup.rotation.z = tilt;
 
-    // Apparent lateral refraction shift + magnification under n=1.333 water!
     this.pencilLowerGroup.position.set(baseX + 0.034, 0.322, 0.012);
     this.pencilLowerGroup.rotation.z = tilt + 0.09;
     this.pencilLowerGroup.scale.set(1.18, 1.04, 1.18);
 
-    // Update Prism & 7-Band Rainbow Spectrum Dispersion
     this.prismMesh.rotation.y = THREE.MathUtils.degToRad(this.prismAngle);
     while (this.prismBeamsGroup.children.length) {
       const c = this.prismBeamsGroup.children.pop();
       if (c.geometry) c.geometry.dispose();
     }
 
-    // Incoming pure white beam
     const whiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const whiteGlow = new THREE.MeshBasicMaterial({ color: 0xe0f2fe, transparent: true, opacity: 0.45 });
+    const whiteGlow = new THREE.MeshBasicMaterial({ color: 0xe0f2fe, transparent: true, opacity: 0.4 });
     this._add3DBeam(
       this.prismBeamsGroup,
       new THREE.Vector3(-0.42, 0.18, 0.08),
@@ -659,8 +687,6 @@ export class LightStation {
       whiteMat,
       whiteGlow
     );
-
-    // Internal dispersing beam inside prism
     this._add3DBeam(
       this.prismBeamsGroup,
       new THREE.Vector3(-0.07, 0.18, 0.02),
@@ -670,15 +696,14 @@ export class LightStation {
       whiteGlow
     );
 
-    // 7 ROYGBIV Dispersed Wavelengths bending at increasing angles (Violet bends most, Red bends least!)
     const spectrum = [
-      { hex: 0xef4444, spreadZ: 0.16, spreadY: 0.055 },  // Red (longest wavelength, bends least)
-      { hex: 0xf97316, spreadZ: 0.10, spreadY: 0.036 },  // Orange
-      { hex: 0xfacc15, spreadZ: 0.04, spreadY: 0.018 },  // Yellow
-      { hex: 0x22c55e, spreadZ: -0.02, spreadY: 0.0 },   // Green
-      { hex: 0x38bdf8, spreadZ: -0.08, spreadY: -0.02 }, // Blue
-      { hex: 0x6366f1, spreadZ: -0.14, spreadY: -0.04 }, // Indigo
-      { hex: 0xa855f7, spreadZ: -0.20, spreadY: -0.06 }  // Violet (shortest wavelength, bends most)
+      { hex: 0xef4444, spreadZ: 0.16, spreadY: 0.055 },
+      { hex: 0xf97316, spreadZ: 0.10, spreadY: 0.036 },
+      { hex: 0xfacc15, spreadZ: 0.04, spreadY: 0.018 },
+      { hex: 0x22c55e, spreadZ: -0.02, spreadY: 0.0 },
+      { hex: 0x38bdf8, spreadZ: -0.08, spreadY: -0.02 },
+      { hex: 0x6366f1, spreadZ: -0.14, spreadY: -0.04 },
+      { hex: 0xa855f7, spreadZ: -0.20, spreadY: -0.06 }
     ];
 
     const angleFactor = 1 + (this.prismAngle - 14) * 0.018;
@@ -686,7 +711,7 @@ export class LightStation {
 
     spectrum.forEach((band) => {
       const mat = new THREE.MeshBasicMaterial({ color: band.hex, transparent: true, opacity: 0.92 });
-      const glow = new THREE.MeshBasicMaterial({ color: band.hex, transparent: true, opacity: 0.32 });
+      const glow = new THREE.MeshBasicMaterial({ color: band.hex, transparent: true, opacity: 0.28 });
       const target = new THREE.Vector3(
         0.66,
         0.22 + band.spreadY * angleFactor,
@@ -694,10 +719,9 @@ export class LightStation {
       );
       this._add3DBeam(this.prismBeamsGroup, exitOrigin, target, 0.0065, mat, glow);
 
-      // Glowing projected color band on the observation screen!
       const patch = new THREE.Mesh(
         new THREE.PlaneGeometry(0.065, 0.052),
-        new THREE.MeshBasicMaterial({ color: band.hex, transparent: true, opacity: 0.88 })
+        new THREE.MeshBasicMaterial({ color: band.hex, transparent: true, opacity: 0.9 })
       );
       patch.rotation.y = -Math.PI / 2;
       patch.position.set(0.661, target.y, target.z);
@@ -716,14 +740,15 @@ export class LightStation {
     core.position.copy(mid);
     parent.add(core);
 
-    const glow = new THREE.Mesh(new THREE.CylinderGeometry(radius * 2.3, radius * 2.3, len, 10), glowMat);
+    const glow = new THREE.Mesh(new THREE.CylinderGeometry(radius * 2.1, radius * 2.1, len, 10), glowMat);
     glow.quaternion.copy(quat);
     glow.position.copy(mid);
     parent.add(glow);
   }
 
   // =========================================================================
-  // MODE C: SHADOW LAB (OPAQUE, TRANSLUCENT, TRANSPARENT)
+  // MODE C: SHADOW LAB — 4 CLICKABLE SHAPES (BLOCK, STAR, CIRCLE, SILLY PUPPET)
+  //         + SIDE-PANEL MATERIAL SELECTOR (OPAQUE, TRANSLUCENT, TRANSPARENT)
   // =========================================================================
   _buildModeShadow() {
     this.shadowGroup = new THREE.Group();
@@ -736,12 +761,10 @@ export class LightStation {
       metalness: 0.82
     });
 
-    // Linear guide rail for movable spotlight
     const rail = new THREE.Mesh(new RoundedBoxGeometry(1.15, 0.022, 0.09, 2, 0.004), railMat);
     rail.position.set(-0.78, 0.011, 0);
     this.shadowGroup.add(rail);
 
-    // Movable LED Torch Housing
     this.torchGroup = new THREE.Group();
     this.shadowGroup.add(this.torchGroup);
 
@@ -771,13 +794,12 @@ export class LightStation {
 
     this.interactables.push(carriage, post, lampHead);
 
-    // Volumetric Light Cone
     this.lightConeMesh = new THREE.Mesh(
-      new THREE.ConeGeometry(0.45, 1.8, 32, 1, true),
+      new THREE.ConeGeometry(0.42, 1.8, 32, 1, true),
       new THREE.MeshBasicMaterial({
         color: 0xfef9c3,
         transparent: true,
-        opacity: 0.11,
+        opacity: 0.07,
         side: THREE.DoubleSide,
         depthWrite: false
       })
@@ -785,10 +807,14 @@ export class LightStation {
     this.lightConeMesh.rotation.z = Math.PI / 2;
     this.shadowGroup.add(this.lightConeMesh);
 
-    // Material Test Pedestal at x = 0.05
+    // Pedestal Stand at x = 0.05
     const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.08, 24), railMat);
     pedestal.position.set(0.05, 0.04, 0);
     this.shadowGroup.add(pedestal);
+
+    const stemPin = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.11, 12), railMat);
+    stemPin.position.set(0.05, 0.11, 0);
+    this.shadowGroup.add(stemPin);
 
     const walnut = ProceduralTextures.getWoodTexture('walnut');
     this.shadowMaterials = {
@@ -796,37 +822,51 @@ export class LightStation {
         map: walnut.map,
         bumpMap: walnut.bumpMap,
         bumpScale: 0.01,
-        roughness: 0.48,
+        roughness: 0.46,
         metalness: 0.05
       }),
       translucent: new THREE.MeshPhysicalMaterial({
-        color: 0xe0f2fe,
+        color: 0xbae6fd,
         transparent: true,
         opacity: 0.68,
-        roughness: 0.58,
+        roughness: 0.55,
         transmission: 0.45,
         ior: 1.48
       }),
       transparent: new THREE.MeshPhysicalMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.2,
         roughness: 0.03,
         transmission: 0.92,
         ior: 1.52
       })
     };
 
-    this.testBlockMesh = new THREE.Mesh(
-      new RoundedBoxGeometry(0.12, 0.34, 0.28, 3, 0.01),
-      this.shadowMaterials.opaque
-    );
-    this.testBlockMesh.position.set(0.05, 0.25, 0);
-    this.testBlockMesh.userData = { action: 'cycleShadowBlock' };
-    this.shadowGroup.add(this.testBlockMesh);
-    this.interactables.push(this.testBlockMesh);
+    // Build all 4 interchangeable 3D Shadow Test Shapes oriented perpendicular to the +X light ray (in YZ plane!)
+    this.shapeHolder = new THREE.Group();
+    this.shapeHolder.position.set(0.05, 0.25, 0);
+    this.shadowGroup.add(this.shapeHolder);
 
-    // Dynamic Canvas Observation Screen at x = 1.08 showing exact physics shadow / transmission!
+    this.shapeGroups = {
+      block: this._createBlockShape(),
+      star: this._createStarShape(),
+      circle: this._createCircleShape(),
+      puppet: this._createSillyPuppetShape()
+    };
+
+    Object.values(this.shapeGroups).forEach((grp) => {
+      this.shapeHolder.add(grp);
+      grp.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.userData = { action: 'cycleShadowShape' };
+          this.interactables.push(child);
+        }
+      });
+    });
+
+    // Observation Projection Screen at x = 1.08
     this.screenCanvas = document.createElement('canvas');
     this.screenCanvas.width = 512;
     this.screenCanvas.height = 384;
@@ -848,8 +888,171 @@ export class LightStation {
     this._updateShadowScene();
   }
 
+  _createBlockShape() {
+    const g = new THREE.Group();
+    const mesh = new THREE.Mesh(
+      new RoundedBoxGeometry(0.075, 0.32, 0.26, 3, 0.01),
+      this.shadowMaterials.opaque
+    );
+    g.add(mesh);
+    return g;
+  }
+
+  _createStarShape() {
+    const g = new THREE.Group();
+    const star2D = new THREE.Shape();
+    const outerR = 0.175;
+    const innerR = 0.074;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
+      const r = i % 2 === 0 ? outerR : innerR;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      if (i === 0) star2D.moveTo(x, y);
+      else star2D.lineTo(x, y);
+    }
+    star2D.closePath();
+
+    const geo = new THREE.ExtrudeGeometry(star2D, {
+      depth: 0.06,
+      bevelEnabled: true,
+      bevelThickness: 0.008,
+      bevelSize: 0.006,
+      bevelSegments: 2
+    });
+    geo.center();
+    const mesh = new THREE.Mesh(geo, this.shadowMaterials.opaque);
+    // Rotate so flat star face faces the spotlight along X!
+    mesh.rotation.y = Math.PI / 2;
+    g.add(mesh);
+    return g;
+  }
+
+  _createCircleShape() {
+    const g = new THREE.Group();
+    const disk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.16, 0.16, 0.065, 40),
+      this.shadowMaterials.opaque
+    );
+    disk.rotation.z = Math.PI / 2;
+    g.add(disk);
+    return g;
+  }
+
+  _createSillyPuppetShape() {
+    // Goofy, cartoony monster puppet with big round head, goofy ears, springy bobble antennas, waving arms & funny legs!
+    const g = new THREE.Group();
+    const mat = this.shadowMaterials.opaque;
+
+    // Chubby body + big goofy head facing the light beam (YZ plane)
+    const body = new THREE.Mesh(new RoundedBoxGeometry(0.06, 0.16, 0.15, 3, 0.025), mat);
+    body.position.y = -0.05;
+    g.add(body);
+
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.085, 0.06, 24), mat);
+    head.rotation.z = Math.PI / 2;
+    head.position.y = 0.075;
+    g.add(head);
+
+    // Big silly floppy ears sticking out +/-Z
+    [-0.115, 0.115].forEach((ez) => {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.036, 16, 16), mat);
+      ear.scale.set(0.6, 1.3, 1.1);
+      ear.position.set(0, 0.075, ez);
+      g.add(ear);
+    });
+
+    // Two goofy springy antenna stalks + bobble balls on top of head!
+    [-0.048, 0.048].forEach((az, i) => {
+      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.09, 10), mat);
+      stalk.position.set(0, 0.185, az * 1.3);
+      stalk.rotation.x = (i === 0 ? -1 : 1) * 0.32;
+      g.add(stalk);
+
+      const bobble = new THREE.Mesh(new THREE.SphereGeometry(0.026, 16, 16), mat);
+      bobble.position.set(0, 0.23, az * 1.85);
+      g.add(bobble);
+    });
+
+    // One arm waving high up (+Z), one arm on hip (-Z)!
+    const armWave = new THREE.Mesh(new THREE.CapsuleGeometry(0.018, 0.11, 6, 10), mat);
+    armWave.position.set(0, 0.02, 0.125);
+    armWave.rotation.x = -0.85;
+    g.add(armWave);
+
+    const armHip = new THREE.Mesh(new THREE.CapsuleGeometry(0.018, 0.1, 6, 10), mat);
+    armHip.position.set(0, -0.04, -0.115);
+    armHip.rotation.x = 0.75;
+    g.add(armHip);
+
+    // Little goofy boots at bottom
+    [-0.045, 0.045].forEach((lz) => {
+      const leg = new THREE.Mesh(new RoundedBoxGeometry(0.055, 0.07, 0.042, 2, 0.01), mat);
+      leg.position.set(0, -0.145, lz);
+      g.add(leg);
+    });
+
+    return g;
+  }
+
+  cycleShadowShape() {
+    const order = ['block', 'star', 'circle', 'puppet'];
+    this.shadowShape = order[(order.indexOf(this.shadowShape) + 1) % order.length];
+    this._updateShadowScene();
+  }
+
+  _drawSilhouettePath(ctx, cx, cy, scale) {
+    ctx.beginPath();
+    if (this.shadowShape === 'block') {
+      const w = 80 * scale;
+      const h = 108 * scale;
+      ctx.rect(cx - w / 2, cy - h / 2, w, h);
+    } else if (this.shadowShape === 'circle') {
+      ctx.arc(cx, cy, 56 * scale, 0, Math.PI * 2);
+    } else if (this.shadowShape === 'star') {
+      const outer = 64 * scale;
+      const inner = 27 * scale;
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+        const r = i % 2 === 0 ? outer : inner;
+        const px = cx + Math.cos(a) * r;
+        const py = cy + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    } else {
+      // Silly Cartoon Puppet silhouette (head, goofy floppy ears, bobble antennas, waving arm & boots!)
+      const s = scale * 0.95;
+      // Torso
+      ctx.roundRect(cx - 26 * s, cy - 8 * s, 52 * s, 54 * s, 12 * s);
+      // Head
+      ctx.moveTo(cx + 34 * s, cy - 26 * s);
+      ctx.arc(cx, cy - 26 * s, 34 * s, 0, Math.PI * 2);
+      // Floppy ears
+      ctx.moveTo(cx - 32 * s, cy - 26 * s);
+      ctx.ellipse(cx - 42 * s, cy - 26 * s, 12 * s, 18 * s, 0, 0, Math.PI * 2);
+      ctx.moveTo(cx + 54 * s, cy - 26 * s);
+      ctx.ellipse(cx + 42 * s, cy - 26 * s, 12 * s, 18 * s, 0, 0, Math.PI * 2);
+      // Left & Right Antenna Stalks + Bobbles
+      ctx.rect(cx - 24 * s, cy - 76 * s, 6 * s, 24 * s);
+      ctx.rect(cx + 18 * s, cy - 76 * s, 6 * s, 24 * s);
+      ctx.moveTo(cx - 12 * s, cy - 80 * s);
+      ctx.arc(cx - 22 * s, cy - 80 * s, 10 * s, 0, Math.PI * 2);
+      ctx.moveTo(cx + 32 * s, cy - 80 * s);
+      ctx.arc(cx + 22 * s, cy - 80 * s, 10 * s, 0, Math.PI * 2);
+      // Waving right arm & bent left arm
+      ctx.moveTo(cx + 24 * s, cy + 4 * s);
+      ctx.ellipse(cx + 46 * s, cy - 8 * s, 24 * s, 8 * s, -0.65, 0, Math.PI * 2);
+      ctx.moveTo(cx - 24 * s, cy + 12 * s);
+      ctx.ellipse(cx - 42 * s, cy + 16 * s, 20 * s, 8 * s, 0.55, 0, Math.PI * 2);
+      // Little boots
+      ctx.rect(cx - 22 * s, cy + 42 * s, 16 * s, 20 * s);
+      ctx.rect(cx + 6 * s, cy + 42 * s, 16 * s, 20 * s);
+    }
+  }
+
   _updateShadowScene() {
-    // Torch X from -1.25 (far) to -0.45 (close to block at +0.05)
     const torchX = -0.48 - this.lightDistance * 0.76;
     const torchZ = this.lightLateral * 0.28;
     this.torchGroup.position.set(torchX, 0, torchZ);
@@ -858,48 +1061,51 @@ export class LightStation {
     this.lightConeMesh.scale.set(1, distToScreen / 1.8, 1);
     this.lightConeMesh.position.set(torchX + distToScreen / 2, 0.25, torchZ * 0.5);
 
-    this.testBlockMesh.material = this.shadowMaterials[this.blockMaterial];
+    const activeMat = this.shadowMaterials[this.blockMaterial];
+    Object.entries(this.shapeGroups).forEach(([key, grp]) => {
+      grp.visible = key === this.shadowShape;
+      if (grp.visible) {
+        grp.traverse((c) => {
+          if (c.isMesh) c.material = activeMat;
+        });
+      }
+    });
 
-    // Paint physically accurate screen illumination + umbra/penumbra/refraction rim
+    // Paint dynamic shadow silhouette onto Observation Screen
     const ctx = this.screenCanvas.getContext('2d');
     ctx.fillStyle = '#1e293b';
     ctx.fillRect(0, 0, 512, 384);
 
-    // Warm bright spotlight circle on screen
-    const spotGrad = ctx.createRadialGradient(256, 210, 20, 256, 210, 250);
+    const spotGrad = ctx.createRadialGradient(256, 205, 20, 256, 205, 255);
     spotGrad.addColorStop(0, '#fefce8');
     spotGrad.addColorStop(0.75, '#e2e8f0');
     spotGrad.addColorStop(1, '#334155');
     ctx.fillStyle = spotGrad;
     ctx.fillRect(0, 0, 512, 384);
 
-    // Shadow magnification = (screenX - torchX) / (blockX - torchX)
     const dObj = Math.max(0.28, 0.05 - torchX);
     const mag = distToScreen / dObj;
-    const wPx = 82 * mag;
-    const hPx = 112 * mag;
-    // Lateral offset shifts shadow opposite to torchZ
-    const cx = 256 + (torchZ / dObj) * 180;
-    const cy = 228;
+    // Note: Screen plane rotated -PI/2 around Y maps +Z to +U on canvas
+    const cx = 256 - (torchZ / dObj) * 180;
+    const cy = 215;
 
     ctx.save();
+    this._drawSilhouettePath(ctx, cx, cy, mag);
+
     if (this.blockMaterial === 'opaque') {
-      // Crisp dark umbra (0% light passes through opaque walnut!)
-      ctx.filter = 'blur(5px)';
-      ctx.fillStyle = 'rgba(12, 18, 28, 0.94)';
-      ctx.fillRect(cx - wPx / 2, cy - hPx / 2, wPx, hPx);
+      ctx.filter = 'blur(4px)';
+      ctx.fillStyle = 'rgba(10, 15, 25, 0.95)';
+      ctx.fill();
     } else if (this.blockMaterial === 'translucent') {
-      // Frosted glass scatters rays: blurry soft partial shadow + diffuse glow center
-      ctx.filter = 'blur(18px)';
+      ctx.filter = 'blur(16px)';
       ctx.fillStyle = 'rgba(51, 65, 85, 0.52)';
-      ctx.fillRect(cx - wPx / 2, cy - hPx / 2, wPx, hPx);
+      ctx.fill();
     } else {
-      // Transparent clear glass: ~95% light passes straight through, subtle refractive caustic outline!
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(cx - wPx / 2, cy - hPx / 2, wPx, hPx);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
-      ctx.fillRect(cx - wPx / 2 + 6, cy - hPx / 2 + 6, wPx - 12, hPx - 12);
+      ctx.strokeStyle = 'rgba(100, 116, 139, 0.5)';
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.fill();
     }
     ctx.restore();
 
@@ -914,11 +1120,17 @@ export class LightStation {
   }
 
   autoSolveMirrors() {
-    this.mirrorAngles = [45, 45, -45];
+    this.mirrorAngles = [45, 45, -45, -45];
     this._updateReflectionRays();
   }
 
-  onPointerDown(hit, raycaster) {
+  demoStraightBackReflection() {
+    // Sets Mirror 1 perpendicular (90°) to the incoming +X laser so θᵢ = 0° reflects straight back!
+    this.mirrorAngles = [90, 45, -45, -45];
+    this._updateReflectionRays();
+  }
+
+  onPointerDown(hit) {
     if (this.mode === 'reflection' && hit?.object?.userData?.mirrorIdx !== undefined) {
       this.draggingMirrorIdx = hit.object.userData.mirrorIdx;
       this._dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.point.y);
@@ -932,11 +1144,9 @@ export class LightStation {
     }
     if (this.mode === 'shadow') {
       const act = hit?.object?.userData?.action;
-      if (act === 'cycleShadowBlock') {
-        const order = ['opaque', 'translucent', 'transparent'];
-        this.blockMaterial = order[(order.indexOf(this.blockMaterial) + 1) % 3];
-        this._updateShadowScene();
-        this.audio.playClick(720, 0.22);
+      if (act === 'cycleShadowShape') {
+        this.cycleShadowShape();
+        this.audio.playClick(760, 0.24);
         return true;
       }
       if (act === 'dragShadowTorch') {
@@ -956,7 +1166,7 @@ export class LightStation {
         const m = this.mirrors[this.draggingMirrorIdx];
         const angle = Math.atan2(local.x - m.x, local.z - m.z);
         this.mirrorAngles[this.draggingMirrorIdx] = Math.round(
-          Math.max(-85, Math.min(85, THREE.MathUtils.radToDeg(angle)))
+          Math.max(-95, Math.min(95, THREE.MathUtils.radToDeg(angle)))
         );
         this._updateReflectionRays();
       }
@@ -985,11 +1195,12 @@ export class LightStation {
   }
 
   reset() {
-    this.mirrorAngles = [36, 52, -38];
+    this.mirrorAngles = [36, 52, -38, -35];
     this.wasSensorHit = false;
     this.waterLevel = 0.72;
     this.pencilOffset = 0;
     this.prismAngle = 14;
+    this.shadowShape = 'block';
     this.blockMaterial = 'opaque';
     this.lightDistance = 0.55;
     this.lightLateral = 0;
@@ -1012,18 +1223,30 @@ export class LightStation {
       };
     }
     return {
-      pos: new THREE.Vector3(0.0, 1.42, 1.55),
-      target: new THREE.Vector3(-0.05, 0.16, 0.0)
+      pos: new THREE.Vector3(0.0, 1.48, 1.56),
+      target: new THREE.Vector3(-0.02, 0.16, 0.0)
     };
   }
 
-  update() {
-    // Keep world-space clipping planes synced to exact water meniscus height
+  update(dt) {
     if (this.mode === 'refraction' && this._waterSurfaceLocalY !== undefined) {
       const worldPt = new THREE.Vector3(0, this._waterSurfaceLocalY, 0);
       this.refractionGroup.localToWorld(worldPt);
       this.clipPlaneAbove.set(new THREE.Vector3(0, 1, 0), -worldPt.y);
       this.clipPlaneBelow.set(new THREE.Vector3(0, -1, 0), worldPt.y);
+    }
+
+    // Animate return light pulses when straight-on (0°) reflection bounces straight back!
+    for (const p of this.returnPulses) {
+      if (this.mode === 'reflection' && this.retroHit && this.retroSegment) {
+        p.phase = (p.phase + dt * 1.4) % 1;
+        const x = THREE.MathUtils.lerp(this.retroSegment.from.x, this.retroSegment.to.x, p.phase);
+        const z = THREE.MathUtils.lerp(this.retroSegment.from.y, this.retroSegment.to.y, p.phase);
+        p.mesh.position.set(x, 0.16, z);
+        p.mat.opacity = 0.95;
+      } else {
+        p.mat.opacity = 0;
+      }
     }
   }
 }

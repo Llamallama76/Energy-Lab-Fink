@@ -40,7 +40,7 @@ export class LabEnvironment {
       clipBias: 0.003,
       textureWidth: Math.min(1024, window.innerWidth),
       textureHeight: Math.min(1024, window.innerHeight),
-      color: 0x334155
+      color: 0x1e293b
     });
     reflector.rotation.x = -Math.PI / 2;
     reflector.position.y = -0.004;
@@ -51,12 +51,12 @@ export class LabEnvironment {
     const tileMat = new THREE.MeshStandardMaterial({
       map: floorTex.map,
       bumpMap: floorTex.bumpMap,
-      bumpScale: 0.012,
+      bumpScale: 0.014,
       roughnessMap: floorTex.roughnessMap,
-      roughness: 0.26,
-      metalness: 0.18,
+      roughness: 0.34,
+      metalness: 0.12,
       transparent: true,
-      opacity: 0.84
+      opacity: 0.91
     });
 
     const tileFloor = new THREE.Mesh(new THREE.PlaneGeometry(floorW, floorD), tileMat);
@@ -69,21 +69,21 @@ export class LabEnvironment {
   _buildRoomArchitecture() {
     const brushedBump = ProceduralTextures.getBrushedMetalBump();
     const wallMat = new THREE.MeshStandardMaterial({
-      color: 0x111824,
-      roughness: 0.78,
-      metalness: 0.12
+      color: 0x0f172a,
+      roughness: 0.85,
+      metalness: 0.08
     });
     const trimMat = new THREE.MeshStandardMaterial({
       color: 0x243044,
       bumpMap: brushedBump,
       bumpScale: 0.005,
-      roughness: 0.35,
-      metalness: 0.75
+      roughness: 0.38,
+      metalness: 0.72
     });
     const ceilingMat = new THREE.MeshStandardMaterial({
-      color: 0x0b1019,
-      roughness: 0.9,
-      metalness: 0.08
+      color: 0x090e17,
+      roughness: 0.92,
+      metalness: 0.05
     });
 
     // Back wall (z = -9.5), Left wall (x = -14.2), Right wall (x = 14.2), Front distant wall (z = 10.8)
@@ -119,8 +119,13 @@ export class LabEnvironment {
       this.root.add(beam);
     }
 
-    // Left Wall Tall Florida Daylight Lab Windows with architectural mullions
-    const windowGlowMat = new THREE.MeshBasicMaterial({ color: 0xdbeafe });
+    // Left Wall Crisp Tinted Lab Windows (no blinding white bloom wash)
+    const windowGlowMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: new THREE.Color(0x0284c7),
+      emissiveIntensity: 0.35,
+      roughness: 0.2
+    });
     const windowFrameMat = trimMat;
     [-4.8, 0.4, 5.6].forEach((wz) => {
       const frame = new THREE.Mesh(new THREE.BoxGeometry(0.14, 3.2, 3.6), windowFrameMat);
@@ -161,7 +166,7 @@ export class LabEnvironment {
         heading: 'Energy Causes Motion & Change',
         accent: '#34d399',
         bullets: [
-          'Vibrating tuning forks launch a ping-pong ball.',
+          'Vibrating tuning forks move a ping-pong ball.',
           'Adding heat melts solids into liquids and gases.',
           'Greater mass or height transfers stronger impact motion.'
         ]
@@ -187,14 +192,7 @@ export class LabEnvironment {
       const tex = ProceduralTextures.createFloridaPosterTexture(p.code, p.heading, p.bullets, p.accent);
       const art = new THREE.Mesh(
         new THREE.PlaneGeometry(2.08, 2.78),
-        new THREE.MeshStandardMaterial({
-          map: tex,
-          roughness: 0.35,
-          metalness: 0.05,
-          emissive: new THREE.Color(0xffffff),
-          emissiveMap: tex,
-          emissiveIntensity: 0.22
-        })
+        new THREE.MeshBasicMaterial({ map: tex })
       );
       art.position.set(p.x, 3.15, -9.39);
       this.root.add(art);
@@ -387,14 +385,7 @@ export class LabEnvironment {
 
       const signFace = new THREE.Mesh(
         new THREE.PlaneGeometry(2.76, 0.37),
-        new THREE.MeshStandardMaterial({
-          map: signTex,
-          roughness: 0.28,
-          metalness: 0.1,
-          emissive: new THREE.Color(0xffffff),
-          emissiveMap: signTex,
-          emissiveIntensity: 0.34
-        })
+        new THREE.MeshBasicMaterial({ map: signTex })
       );
       signFace.position.set(0, BENCH_TOP_Y + 0.96, -0.792);
       signFace.userData.stationBenchId = meta.id;

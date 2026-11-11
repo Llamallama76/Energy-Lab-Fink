@@ -12,7 +12,7 @@ export class ThermalStation {
     this.mode = 'chamber'; // 'chamber' | 'toaster'
 
     // Apparatus A: Molecular Motion Chamber state
-    this.temperatureC = 22; // -30°C (Solid) -> +150°C (Gas)
+    this.temperatureC = 24; // 0°C/32°F (Solid), 24°C/75°F (Liquid), 100°C/212°F (Gas)
     this.molecules = [];
 
     // Apparatus B: Kitchen Toaster state
@@ -470,7 +470,7 @@ export class ThermalStation {
   }
 
   reset() {
-    this.temperatureC = 22;
+    this.temperatureC = 24; // 75°F Room-Temperature Liquid Water
     this.darknessSetting = 3;
     this.isToasting = false;
     this.toastTimer = 0;
@@ -502,17 +502,17 @@ export class ThermalStation {
   }
 
   update(dt, elapsed) {
-    // 1. Update Thermometer, Bunsen Flame & Cryo Ice Block
-    const tempNorm = (this.temperatureC + 30) / 180; // 0 at -30C, 1 at +150C
+    // 1. Update Thermometer, Bunsen Flame & Cryo Ice Block (-20°C to +120°C scale)
+    const tempNorm = Math.max(0, Math.min(1, (this.temperatureC + 20) / 140));
     const colH = Math.max(0.03, 0.03 + tempNorm * 0.38);
     this.thermoColumn.scale.y = colH;
     this.thermoColumn.position.y = 0.035 + colH / 2;
 
-    if (this.temperatureC > 32) {
-      const heat = Math.min(1, (this.temperatureC - 32) / 118);
+    if (this.temperatureC > 30) {
+      const heat = Math.min(1, (this.temperatureC - 30) / 80);
       const flicker = 0.92 + Math.sin(elapsed * 29) * 0.08;
-      this.outerFlameMat.opacity = (0.45 + heat * 0.45) * flicker;
-      this.innerFlameMat.opacity = (0.55 + heat * 0.4) * flicker;
+      this.outerFlameMat.opacity = (0.45 + heat * 0.5) * flicker;
+      this.innerFlameMat.opacity = (0.55 + heat * 0.42) * flicker;
       this.flameGroup.scale.set(0.85 + heat * 0.35, (0.7 + heat * 0.75) * flicker, 0.85 + heat * 0.35);
       this.burnerLight.intensity = heat * 1.6 * flicker;
       this.iceBlockMat.opacity = 0;
@@ -526,8 +526,8 @@ export class ThermalStation {
       this.innerFlameMat.opacity = 0;
       this.burnerLight.intensity = 0;
       this.audio.updateBunsenHiss(0);
-      const cold = Math.max(0, (18 - this.temperatureC) / 48);
-      this.iceBlockMat.opacity = cold * 0.82;
+      const cold = Math.max(0, (12 - this.temperatureC) / 32);
+      this.iceBlockMat.opacity = cold * 0.85;
     }
 
     // 2. Update 64 3D Molecules (Solid Lattice -> Sliding Liquid -> Colliding Gas)

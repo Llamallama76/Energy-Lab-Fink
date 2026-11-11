@@ -1,10 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { FLORIDA_STANDARDS, STATIONS_META } from './data/standardsData.js';
 import { AudioEngine } from './engine/AudioEngine.js';
@@ -15,7 +11,7 @@ import { LightStation } from './stations/LightStation.js';
 import { ThermalStation } from './stations/ThermalStation.js';
 import { MechanicalStation } from './stations/MechanicalStation.js';
 import { ChemicalStation } from './stations/ChemicalStation.js';
-import { ElectricalStation } from './stations/ElectricalStation.js';
+import { ElectricalStation, SNAP_PART_CATALOG } from './stations/ElectricalStation.js';
 
 class OmniEnergyLabApp {
   constructor() {
@@ -26,6 +22,7 @@ class OmniEnergyLabApp {
     this.activeStationId = 'overview';
     this.stations = new Map();
     this.liveMetricUpdaters = null;
+    this._syncControlsFn = null;
 
     // Camera tweening state
     this.camTween = {
@@ -55,6 +52,7 @@ class OmniEnergyLabApp {
   }
 
   _initRendererAndScene() {
+    // Crisp direct WebGL2 hardware-MSAA rendering — ZERO fog and ZERO bloom haze!
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: true,
@@ -63,21 +61,21 @@ class OmniEnergyLabApp {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = 1.04;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.localClippingEnabled = true;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x090d16);
-    this.scene.fog = new THREE.FogExp2(0x090d16, 0.018);
+    this.scene.background = new THREE.Color(0x070b12);
+    // Intentionally NO scene.fog so every station and distant classroom wall is crystal-clear!
 
-    // Procedural HDR Studio/Laboratory Environment Reflections via PMREMGenerator
+    // Restrained studio metallic specular reflection without milky ambient washout
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const roomEnv = new RoomEnvironment();
-    this.scene.environment = pmrem.fromScene(roomEnv, 0.04).texture;
-    this.scene.environmentIntensity = 0.72;
+    this.scene.environment = pmrem.fromScene(roomEnv, 0.03).texture;
+    this.scene.environmentIntensity = 0.25;
     roomEnv.dispose();
     pmrem.dispose();
 
@@ -101,46 +99,34 @@ class OmniEnergyLabApp {
     this.controls.minDistance = 0.55;
     this.controls.maxDistance = 21;
     this.controls.update();
-
-    // WebGL2 Multisampled Post-Processing Pipeline (RenderPass + UnrealBloomPass + OutputPass)
-    const rt = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
-      type: THREE.HalfFloatType,
-      samples: 4
-    });
-    this.composer = new EffectComposer(this.renderer, rt);
-    this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-
-    this.bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.34, // subtle photorealistic halation on lasers, coils, filaments & LED rings
-      0.42,
-      0.86
-    );
-    this.composer.addPass(this.bloomPass);
-    this.composer.addPass(new OutputPass());
   }
 
   _initLighting() {
-    const hemi = new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 0.65);
+    // High-contrast, clean studio/laboratory lighting with crisp shadows and zero atmospheric haze
+    const hemi = new THREE.HemisphereLight(0xf1f5f9, 0x0f172a, 0.52);
     this.scene.add(hemi);
 
-    // Warm Florida Sunlight key directional shadow caster from left laboratory windows
-    const sunKey = new THREE.DirectionalLight(0xfffbeb, 1.45);
-    sunKey.position.set(-10, 11, 6);
+    // Crisp key directional sunlight from left laboratory windows
+    const sunKey = new THREE.DirectionalLight(0xffffff, 1.65);
+    sunKey.position.set(-10, 12, 6.5);
     sunKey.castShadow = true;
     sunKey.shadow.mapSize.set(2048, 2048);
     sunKey.shadow.camera.near = 1;
-    sunKey.shadow.camera.far = 32;
+    sunKey.shadow.camera.far = 34;
     sunKey.shadow.camera.left = -12;
     sunKey.shadow.camera.right = 12;
     sunKey.shadow.camera.top = 10;
     sunKey.shadow.camera.bottom = -10;
-    sunKey.shadow.bias = -0.0004;
+    sunKey.shadow.bias = -0.0003;
     this.scene.add(sunKey);
 
-    // Dedicated Active Workbench Overhead Spotlight for crisp close-up apparatus shadows & speculars
-    this.benchSpot = new THREE.SpotLight(0xf8fafc, 2.6, 9, Math.PI * 0.34, 0.45, 1.0);
+    // Subtle cool counter-rim directional light for sharp edge separation on 3D instruments
+    const rimFill = new THREE.DirectionalLight(0xe0f2fe, 0.55);
+    rimFill.position.set(10, 8, -7);
+    this.scene.add(rimFill);
+
+    // Dedicated Active Workbench Overhead Spotlight for razor-sharp close-up apparatus visibility
+    this.benchSpot = new THREE.SpotLight(0xffffff, 2.9, 10, Math.PI * 0.36, 0.35, 0.85);
     this.benchSpot.position.set(0, 4.4, 3.0);
     this.benchSpot.castShadow = true;
     this.benchSpot.shadow.mapSize.set(1024, 1024);
@@ -190,8 +176,8 @@ class OmniEnergyLabApp {
       this.benchPins.push({ id: meta.id, el: btn, worldPos: worldPin });
     });
 
-    // Dynamic angle callouts pool for LightStation Mode A
-    this.angleCalloutEls = Array.from({ length: 4 }, () => {
+    // Dynamic angle callouts pool for LightStation Mode A (supports all 4 mirrors + retro bounce)
+    this.angleCalloutEls = Array.from({ length: 5 }, () => {
       const div = document.createElement('div');
       div.className = 'angle-callout hidden';
       this.overlayContainer.appendChild(div);
@@ -248,12 +234,23 @@ class OmniEnergyLabApp {
         return;
       }
 
-      // Hover cursor affordance over interactive 3D apparatus parts
+      // Hover cursor affordance + Snap-Circuits pegboard ghost preview
       if (this.activeStationId !== 'overview') {
         const st = this.stations.get(this.activeStationId);
         if (st && st.interactables.length > 0) {
           const hits = this.raycaster.intersectObjects(st.interactables, false);
           this.canvas.style.cursor = hits.length > 0 ? 'pointer' : 'grab';
+
+          if (this.activeStationId === 'electrical' && typeof st.onHoverPeg === 'function') {
+            const pegHit = hits.find(
+              (h) => h.object.userData.pegR !== undefined && h.object.userData.pegC !== undefined
+            );
+            if (pegHit) {
+              st.onHoverPeg(pegHit.object.userData.pegR, pegHit.object.userData.pegC);
+            } else {
+              st.onHoverPeg(null, null);
+            }
+          }
         }
       } else {
         const hits = this.raycaster.intersectObjects(this.labEnv.clickableBenchTargets, false);
@@ -268,6 +265,17 @@ class OmniEnergyLabApp {
         this.isDragging3D = false;
         this.controls.enabled = true;
         this._syncStationControlsValues();
+      }
+    });
+
+    // Keyboard shortcut 'R' to rotate Snap-Circuits parts on Station 6
+    window.addEventListener('keydown', (e) => {
+      if ((e.key === 'r' || e.key === 'R') && this.activeStationId === 'electrical') {
+        const st = this.stations.get('electrical');
+        if (st) {
+          st.rotateOrientation();
+          this._syncStationControlsValues();
+        }
       }
     });
   }
@@ -469,12 +477,15 @@ class OmniEnergyLabApp {
     if (this._syncControlsFn) this._syncControlsFn();
   }
 
-  // --- Station 1: Sound Energy HUD ---
+  // --- Station 1: Sound Energy HUD (Air-Gap Wave Motion + Deep Bass Subwoofer) ---
   _buildSoundHUD(box, st) {
+    const gapLabelText = (cm) =>
+      cm < 0.4 ? '0 cm (Touching Prong)' : `${cm} cm (Air Sound Waves!)`;
+
     box.innerHTML = `
       <div class="submode-tabs">
         <button class="submode-btn ${st.mode === 'fork' ? 'active' : ''}" data-mode="fork" type="button">A: Tuning Fork</button>
-        <button class="submode-btn ${st.mode === 'speaker' ? 'active' : ''}" data-mode="speaker" type="button">B: Speaker Cone</button>
+        <button class="submode-btn ${st.mode === 'speaker' ? 'active' : ''}" data-mode="speaker" type="button">B: Deep Bass Cone</button>
       </div>
       <div id="sound-fork-panel" class="control-group ${st.mode !== 'fork' ? 'hidden' : ''}">
         <div class="slider-row">
@@ -491,11 +502,17 @@ class OmniEnergyLabApp {
           </div>
           <input id="rng-strike-force" type="range" min="15" max="100" value="${Math.round(st.strikeForce * 100)}" />
         </div>
-        <div class="btn-grid-2">
-          <button id="btn-strike-fork" class="action-btn" type="button">🔔 Strike Fork</button>
-          <button id="btn-ball-touch" class="chip-btn ${st.ballContact ? 'active' : ''}" type="button">
-            ${st.ballContact ? 'Ball: Touching Prong' : 'Ball: Pulled Away'}
-          </button>
+        <div class="slider-row">
+          <div class="slider-label-line">
+            <span>Ping-Pong Ball Air Gap</span>
+            <span id="lbl-ball-gap" class="slider-val">${gapLabelText(st.ballGapCm)}</span>
+          </div>
+          <input id="rng-ball-gap" type="range" min="0" max="8" step="1" value="${Math.round(st.ballGapCm)}" />
+        </div>
+        <div class="btn-grid-3">
+          <button id="btn-strike-fork" class="action-btn" type="button">🔔 Strike</button>
+          <button id="btn-gap-touch" class="chip-btn ${st.ballContact ? 'active' : ''}" type="button">0 cm Touch</button>
+          <button id="btn-gap-air" class="chip-btn ${!st.ballContact ? 'active' : ''}" type="button">3 cm Air Wave</button>
         </div>
         <div class="telemetry-grid">
           <div class="metric-box">
@@ -503,7 +520,7 @@ class OmniEnergyLabApp {
             <span id="met-fork-hz" class="metric-value">${st.getFrequency()} Hz</span>
           </div>
           <div class="metric-box">
-            <span class="metric-label">Peak Ball Kick</span>
+            <span class="metric-label">Peak Ball Swing</span>
             <span id="met-ball-kick" class="metric-value">${st.maxKickDeg}°</span>
           </div>
         </div>
@@ -512,17 +529,20 @@ class OmniEnergyLabApp {
       <div id="sound-speaker-panel" class="control-group ${st.mode !== 'speaker' ? 'hidden' : ''}">
         <div class="slider-row">
           <div class="slider-label-line">
-            <span>Subwoofer Volume Knob</span>
+            <span>Subwoofer Bass Volume</span>
             <span id="lbl-spk-vol" class="slider-val">${Math.round(st.speakerVolume * 100)}%</span>
           </div>
           <input id="rng-spk-vol" type="range" min="0" max="100" value="${Math.round(st.speakerVolume * 100)}" />
         </div>
         <div class="slider-row">
           <div class="slider-label-line">
-            <span>Bass Tone Frequency</span>
+            <span>Deep Bass Frequency</span>
             <span id="lbl-spk-freq" class="slider-val">${st.speakerFreq} Hz</span>
           </div>
           <input id="rng-spk-freq" type="range" min="35" max="90" value="${st.speakerFreq}" />
+        </div>
+        <div class="status-banner ok">
+          🔊 Turn up Volume to hear the deep bass rumble and watch sound vibrations launch the sprinkles!
         </div>
       </div>
     `;
@@ -539,6 +559,8 @@ class OmniEnergyLabApp {
 
     const rngSize = box.querySelector('#rng-fork-size');
     const rngForce = box.querySelector('#rng-strike-force');
+    const rngGap = box.querySelector('#rng-ball-gap');
+
     rngSize?.addEventListener('input', () => {
       st.forkSize = Number(rngSize.value) / 100;
       st._applyForkSize();
@@ -549,13 +571,23 @@ class OmniEnergyLabApp {
       st.strikeForce = Number(rngForce.value) / 100;
       box.querySelector('#lbl-strike-force').textContent = `${rngForce.value}%`;
     });
+    rngGap?.addEventListener('input', () => {
+      st.setBallGapCm(Number(rngGap.value));
+      box.querySelector('#lbl-ball-gap').textContent = gapLabelText(st.ballGapCm);
+      box.querySelector('#btn-gap-touch')?.classList.toggle('active', st.ballContact);
+      box.querySelector('#btn-gap-air')?.classList.toggle('active', !st.ballContact);
+    });
+
     box.querySelector('#btn-strike-fork')?.addEventListener('click', () => {
       st.maxKickDeg = 0;
       st.strikeFork();
     });
-    box.querySelector('#btn-ball-touch')?.addEventListener('click', () => {
-      st.ballContact = !st.ballContact;
-      st._applyForkSize();
+    box.querySelector('#btn-gap-touch')?.addEventListener('click', () => {
+      st.setBallGapCm(0);
+      this._renderStationControls('sound');
+    });
+    box.querySelector('#btn-gap-air')?.addEventListener('click', () => {
+      st.setBallGapCm(3);
       this._renderStationControls('sound');
     });
 
@@ -579,20 +611,27 @@ class OmniEnergyLabApp {
     this._syncControlsFn = () => this._renderStationControls('sound');
   }
 
-  // --- Station 2: Light Energy HUD ---
+  // --- Station 2: Light Energy HUD (4 Mirrors + 0° Bounce-Back + 4 Shadow Shapes) ---
   _buildLightHUD(box, st) {
+    const shapeNames = {
+      block: 'Wood Block',
+      star: '5-Point Star',
+      circle: 'Circle Disc',
+      puppet: 'Silly Cartoon Puppet'
+    };
+
     box.innerHTML = `
       <div class="submode-tabs">
-        <button class="submode-btn ${st.mode === 'reflection' ? 'active' : ''}" data-mode="reflection" type="button">A: Reflection</button>
+        <button class="submode-btn ${st.mode === 'reflection' ? 'active' : ''}" data-mode="reflection" type="button">A: 4-Mirror Laser</button>
         <button class="submode-btn ${st.mode === 'refraction' ? 'active' : ''}" data-mode="refraction" type="button">B: Refraction</button>
         <button class="submode-btn ${st.mode === 'shadow' ? 'active' : ''}" data-mode="shadow" type="button">C: Shadow Lab</button>
       </div>
 
       <div class="control-group ${st.mode !== 'reflection' ? 'hidden' : ''}">
-        <div id="laser-target-banner" class="status-banner ${st.sensorHit ? 'ok' : 'warn'}">
-          ${st.sensorHit ? '🎯 Target Hit! Angle of Incidence = Angle of Reflection!' : 'Rotate the 3 mirrors (in 3D or below) to hit the green sensor!'}
+        <div id="laser-target-banner" class="status-banner ${st.sensorHit || st.retroHit ? 'ok' : 'warn'}">
+          ${this._getLaserBannerText(st)}
         </div>
-        ${[0, 1, 2]
+        ${[0, 1, 2, 3]
           .map(
             (i) => `
           <div class="slider-row">
@@ -600,11 +639,14 @@ class OmniEnergyLabApp {
               <span>Mirror ${i + 1} Angle</span>
               <span id="lbl-m-${i}" class="slider-val">${st.mirrorAngles[i]}°</span>
             </div>
-            <input id="rng-m-${i}" type="range" min="-85" max="85" value="${st.mirrorAngles[i]}" />
+            <input id="rng-m-${i}" type="range" min="-95" max="95" value="${st.mirrorAngles[i]}" />
           </div>`
           )
           .join('')}
-        <button id="btn-align-mirrors" class="action-btn amber" type="button">✨ Align Laser to Target (45° Law)</button>
+        <div class="btn-grid-2">
+          <button id="btn-align-mirrors" class="action-btn amber" type="button">✨ Align 4 Mirrors</button>
+          <button id="btn-retro-bounce" class="action-btn" type="button">↔ 0° Straight Back</button>
+        </div>
       </div>
 
       <div class="control-group ${st.mode !== 'refraction' ? 'hidden' : ''}">
@@ -632,12 +674,27 @@ class OmniEnergyLabApp {
       </div>
 
       <div class="control-group ${st.mode !== 'shadow' ? 'hidden' : ''}">
-        <div class="slider-label-line"><span>Test Block Material</span></div>
+        <div class="slider-label-line">
+          <span>Object Shape (Click 3D Object or Pick)</span>
+          <span id="lbl-shadow-shape" class="slider-val">${shapeNames[st.shadowShape] || st.shadowShape}</span>
+        </div>
+        <div class="btn-grid-4">
+          <button class="chip-btn ${st.shadowShape === 'block' ? 'active' : ''}" data-shape="block" type="button">🟫 Block</button>
+          <button class="chip-btn ${st.shadowShape === 'star' ? 'active' : ''}" data-shape="star" type="button">⭐ Star</button>
+          <button class="chip-btn ${st.shadowShape === 'circle' ? 'active' : ''}" data-shape="circle" type="button">⚪ Circle</button>
+          <button class="chip-btn ${st.shadowShape === 'puppet' ? 'active' : ''}" data-shape="puppet" type="button">🤪 Puppet</button>
+        </div>
+
+        <div class="slider-label-line">
+          <span>Test Material (Side Panel Control)</span>
+          <span id="lbl-shadow-mat" class="slider-val">${st.blockMaterial.toUpperCase()}</span>
+        </div>
         <div class="btn-grid-3">
-          <button class="chip-btn ${st.blockMaterial === 'opaque' ? 'active' : ''}" data-mat="opaque" type="button">Opaque (Wood)</button>
+          <button class="chip-btn ${st.blockMaterial === 'opaque' ? 'active' : ''}" data-mat="opaque" type="button">Opaque</button>
           <button class="chip-btn ${st.blockMaterial === 'translucent' ? 'active' : ''}" data-mat="translucent" type="button">Translucent</button>
           <button class="chip-btn ${st.blockMaterial === 'transparent' ? 'active' : ''}" data-mat="transparent" type="button">Transparent</button>
         </div>
+
         <div class="slider-row">
           <div class="slider-label-line">
             <span>Spotlight Distance (Drag Torch in 3D)</span>
@@ -663,7 +720,7 @@ class OmniEnergyLabApp {
       });
     });
 
-    [0, 1, 2].forEach((i) => {
+    [0, 1, 2, 3].forEach((i) => {
       const r = box.querySelector(`#rng-m-${i}`);
       r?.addEventListener('input', () => {
         st.mirrorAngles[i] = Number(r.value);
@@ -675,6 +732,12 @@ class OmniEnergyLabApp {
 
     box.querySelector('#btn-align-mirrors')?.addEventListener('click', () => {
       st.autoSolveMirrors();
+      this._renderStationControls('light');
+    });
+
+    box.querySelector('#btn-retro-bounce')?.addEventListener('click', () => {
+      st.demoStraightBackReflection();
+      this.audio.playClick(880, 0.22);
       this._renderStationControls('light');
     });
 
@@ -694,6 +757,15 @@ class OmniEnergyLabApp {
       st.prismAngle = Number(rPrism.value);
       box.querySelector('#lbl-prism').textContent = `${st.prismAngle}°`;
       st._updateRefractionScene();
+    });
+
+    box.querySelectorAll('[data-shape]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        st.shadowShape = btn.dataset.shape;
+        st._updateShadowScene();
+        this.audio.playClick(760, 0.22);
+        this._renderStationControls('light');
+      });
     });
 
     box.querySelectorAll('[data-mat]').forEach((btn) => {
@@ -718,30 +790,57 @@ class OmniEnergyLabApp {
     });
 
     this._syncControlsFn = () => {
-      [0, 1, 2].forEach((i) => {
+      [0, 1, 2, 3].forEach((i) => {
         const r = box.querySelector(`#rng-m-${i}`);
         const l = box.querySelector(`#lbl-m-${i}`);
         if (r) r.value = st.mirrorAngles[i];
         if (l) l.textContent = `${st.mirrorAngles[i]}°`;
       });
       this._refreshLaserBanner(box, st);
+      if (st.mode === 'refraction') {
+        const lp = box.querySelector('#lbl-prism');
+        if (rPrism) rPrism.value = st.prismAngle;
+        if (lp) lp.textContent = `${st.prismAngle}°`;
+      }
       if (st.mode === 'shadow') {
         if (rDist) rDist.value = Math.round(st.lightDistance * 100);
+        const ld = box.querySelector('#lbl-torch-dist');
+        if (ld) ld.textContent = `${Math.round(40 + st.lightDistance * 60)} cm`;
         if (rLat) rLat.value = Math.round(st.lightLateral * 100);
+
+        // Immediately sync shape & material indicators when clicking the 3D test object!
+        const shapeLbl = box.querySelector('#lbl-shadow-shape');
+        if (shapeLbl) shapeLbl.textContent = shapeNames[st.shadowShape] || st.shadowShape;
+        box.querySelectorAll('[data-shape]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.shape === st.shadowShape);
+        });
+        const matLbl = box.querySelector('#lbl-shadow-mat');
+        if (matLbl) matLbl.textContent = st.blockMaterial.toUpperCase();
+        box.querySelectorAll('[data-mat]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.mat === st.blockMaterial);
+        });
       }
     };
+  }
+
+  _getLaserBannerText(st) {
+    if (st.retroHit) {
+      return '↔ Straight-On (0°)! Light hits perpendicular to Mirror 1 and reflects directly back!';
+    }
+    if (st.sensorHit) {
+      return '🎯 All 4 Mirrors Aligned! Target Hit (Angle of Incidence = Angle of Reflection)!';
+    }
+    return 'Rotate the 4 mirrors (in 3D or below) to steer the laser into the green target!';
   }
 
   _refreshLaserBanner(box, st) {
     const banner = box.querySelector('#laser-target-banner');
     if (!banner) return;
-    banner.className = `status-banner ${st.sensorHit ? 'ok' : 'warn'}`;
-    banner.textContent = st.sensorHit
-      ? '🎯 Target Hit! Angle of Incidence = Angle of Reflection!'
-      : 'Rotate the 3 mirrors (in 3D or below) to hit the green sensor!';
+    banner.className = `status-banner ${st.sensorHit || st.retroHit ? 'ok' : 'warn'}`;
+    banner.textContent = this._getLaserBannerText(st);
   }
 
-  // --- Station 3: Thermal Energy HUD ---
+  // --- Station 3: Thermal Energy HUD (Exact Water Benchmark Presets: 0°C/32°F, 24°C/75°F, 100°C/212°F) ---
   _buildThermalHUD(box, st) {
     box.innerHTML = `
       <div class="submode-tabs">
@@ -755,12 +854,13 @@ class OmniEnergyLabApp {
             <span>❄️ Cool (Ice) ↔ 🔥 Heat (Bunsen Flame)</span>
             <span id="lbl-temp-c" class="slider-val">${st.temperatureC}°C / ${st.getTemperatureF()}°F</span>
           </div>
-          <input id="rng-temp" type="range" min="-30" max="150" value="${st.temperatureC}" />
+          <input id="rng-temp" type="range" min="-20" max="120" value="${st.temperatureC}" />
         </div>
+        <div class="slider-label-line"><span>Water Phase Benchmark Jump Points:</span></div>
         <div class="btn-grid-3">
-          <button class="chip-btn" data-preset="-22" type="button">Solid (-22°C)</button>
-          <button class="chip-btn" data-preset="35" type="button">Liquid (35°C)</button>
-          <button class="chip-btn" data-preset="135" type="button">Gas (135°C)</button>
+          <button class="chip-btn ${st.temperatureC === 0 ? 'active' : ''}" data-preset="0" type="button">Solid<br/>0°C / 32°F</button>
+          <button class="chip-btn ${st.temperatureC === 24 ? 'active' : ''}" data-preset="24" type="button">Liquid<br/>24°C / 75°F</button>
+          <button class="chip-btn ${st.temperatureC === 100 ? 'active' : ''}" data-preset="100" type="button">Gas<br/>100°C / 212°F</button>
         </div>
         <div class="telemetry-grid">
           <div class="metric-box">
@@ -788,7 +888,7 @@ class OmniEnergyLabApp {
         <div class="telemetry-grid">
           <div class="metric-box">
             <span class="metric-label">Nichrome Coils</span>
-            <span id="met-coil-state" class="metric-value">Cool</span>
+            <span id="met-coil-state" class="metric-value">Standby</span>
           </div>
           <div class="metric-box">
             <span class="metric-label">Bread Browning</span>
@@ -815,6 +915,9 @@ class OmniEnergyLabApp {
       if (l1) l1.textContent = txt;
       if (l2) l2.textContent = `${st.temperatureC}°C (${st.getTemperatureF()}°F)`;
       if (lp) lp.textContent = st.getPhaseState();
+      box.querySelectorAll('[data-preset]').forEach((b) => {
+        b.classList.toggle('active', Number(b.dataset.preset) === st.temperatureC);
+      });
     };
     rngTemp?.addEventListener('input', () => {
       st.temperatureC = Number(rngTemp.value);
@@ -846,7 +949,7 @@ class OmniEnergyLabApp {
     };
   }
 
-  // --- Station 4: Mechanical Energy HUD ---
+  // --- Station 4: Mechanical Energy HUD (Draggable Lift Tower + 0/1/2 Loops + 6-Pin Scatter) ---
   _buildMechanicalHUD(box, st) {
     box.innerHTML = `
       <div class="submode-tabs">
@@ -855,12 +958,19 @@ class OmniEnergyLabApp {
       </div>
 
       <div class="control-group ${st.mode !== 'coaster' ? 'hidden' : ''}">
+        <div id="coaster-status-banner" class="status-banner">${st.coasterStatus}</div>
         <div class="slider-row">
           <div class="slider-label-line">
-            <span>Release Height</span>
-            <span id="lbl-coaster-h" class="slider-val">${Math.round(st.releaseHeightNorm * 100)}%</span>
+            <span>Starting Hill Height (Drag 3D Tower)</span>
+            <span id="lbl-coaster-h" class="slider-val">${st.startHeightCm} cm</span>
           </div>
-          <input id="rng-coaster-h" type="range" min="35" max="100" value="${Math.round(st.releaseHeightNorm * 100)}" />
+          <input id="rng-coaster-h" type="range" min="24" max="84" value="${st.startHeightCm}" />
+        </div>
+        <div class="slider-label-line"><span>Loop Challenge (Add or Remove Loops):</span></div>
+        <div class="btn-grid-3">
+          <button class="chip-btn ${st.loopCount === 0 ? 'active' : ''}" data-loops="0" type="button">0 Loops</button>
+          <button class="chip-btn ${st.loopCount === 1 ? 'active' : ''}" data-loops="1" type="button">1 Loop</button>
+          <button class="chip-btn ${st.loopCount === 2 ? 'active' : ''}" data-loops="2" type="button">2 Loops</button>
         </div>
         <div class="slider-row">
           <div class="slider-label-line">
@@ -921,12 +1031,12 @@ class OmniEnergyLabApp {
         <button id="btn-launch-ramp" class="action-btn amber" type="button">🎳 Release Ball Down Ramp</button>
         <div class="telemetry-grid">
           <div class="metric-box">
-            <span class="metric-label">Impact Energy</span>
-            <span id="met-impact-ke" class="metric-value">${st.impactKE} J</span>
+            <span class="metric-label">Pins Scattered</span>
+            <span id="met-pins-hit" class="metric-value">${st.pinsKnockedCount} / 6 (${st.maxPinScatterCm} cm)</span>
           </div>
           <div class="metric-box">
-            <span class="metric-label">Max Pin Scatter</span>
-            <span id="met-pin-dist" class="metric-value">${st.maxPinScatterCm} cm</span>
+            <span class="metric-label">Impact Energy</span>
+            <span id="met-impact-ke" class="metric-value">${st.impactKE} J</span>
           </div>
         </div>
       </div>
@@ -942,10 +1052,18 @@ class OmniEnergyLabApp {
 
     const rH = box.querySelector('#rng-coaster-h');
     rH?.addEventListener('input', () => {
-      st.releaseHeightNorm = Number(rH.value) / 100;
-      box.querySelector('#lbl-coaster-h').textContent = `${rH.value}%`;
-      st._resetCartToStart();
+      st.setStartHeightCm(Number(rH.value));
+      box.querySelector('#lbl-coaster-h').textContent = `${st.startHeightCm} cm`;
     });
+
+    box.querySelectorAll('[data-loops]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        st.setLoopCount(Number(btn.dataset.loops));
+        this.audio.playClick(740, 0.2);
+        this._renderStationControls('mechanical');
+      });
+    });
+
     const rM = box.querySelector('#rng-cart-mass');
     rM?.addEventListener('input', () => {
       st.cartMass = Number(rM.value) / 10;
@@ -974,6 +1092,12 @@ class OmniEnergyLabApp {
     });
     box.querySelector('#btn-launch-ramp')?.addEventListener('click', () => st.launchRampBall());
 
+    this._syncControlsFn = () => {
+      if (rH) rH.value = st.startHeightCm;
+      const lh = box.querySelector('#lbl-coaster-h');
+      if (lh) lh.textContent = `${st.startHeightCm} cm`;
+    };
+
     this.liveMetricUpdaters = () => {
       const e = st.energyStats;
       const tot = Math.max(1, e.total);
@@ -986,15 +1110,26 @@ class OmniEnergyLabApp {
         box.querySelector('#val-ke').textContent = `${e.ke} J`;
         box.querySelector('#val-th').textContent = `${e.thermal} J`;
       }
+      const statusEl = box.querySelector('#coaster-status-banner');
+      if (statusEl) {
+        statusEl.textContent = st.coasterStatus;
+        statusEl.className = `status-banner ${
+          st.coasterStatus.startsWith('🏁')
+            ? 'ok'
+            : st.coasterStatus.startsWith('⚠️')
+            ? 'warn'
+            : ''
+        }`;
+      }
       const keEl = box.querySelector('#met-impact-ke');
       if (keEl) {
         keEl.textContent = `${st.impactKE} J`;
-        box.querySelector('#met-pin-dist').textContent = `${st.maxPinScatterCm} cm`;
+        box.querySelector('#met-pins-hit').textContent = `${st.pinsKnockedCount} / 6 (${st.maxPinScatterCm} cm)`;
       }
     };
   }
 
-  // --- Station 5: Chemical Energy HUD ---
+  // --- Station 5: Chemical Energy HUD (Tire Dynamo Generator + House Windows & 8 Streetlights) ---
   _buildChemicalHUD(box, st) {
     box.innerHTML = `
       <div class="submode-tabs">
@@ -1003,7 +1138,7 @@ class OmniEnergyLabApp {
       </div>
 
       <div class="control-group ${st.mode !== 'town' ? 'hidden' : ''}">
-        <div class="slider-label-line"><span>Feed Chemical Energy (Food Calories) to Cyclist</span></div>
+        <div class="slider-label-line"><span>Feed Chemical Energy (Food) to Cyclist</span></div>
         <div class="btn-grid-3">
           <button class="action-btn" data-food="apple" type="button">🍎 Apple</button>
           <button class="action-btn" data-food="banana" type="button">🍌 Banana</button>
@@ -1018,16 +1153,16 @@ class OmniEnergyLabApp {
         </div>
         <div class="telemetry-grid">
           <div class="metric-box">
-            <span class="metric-label">Generator Output</span>
+            <span class="metric-label">Tire Dynamo Output</span>
             <span id="met-watts" class="metric-value">0 W</span>
           </div>
           <div class="metric-box">
-            <span class="metric-label">Town Lights</span>
+            <span class="metric-label">Houses &amp; Streetlights</span>
             <span id="met-town-state" class="metric-value">Dark</span>
           </div>
         </div>
         <div class="status-banner">
-          Chain: <strong>Chemical</strong> (Food) → <strong>Mechanical</strong> (Pedals) → <strong>Electrical</strong> → <strong>Light</strong>
+          Chain: <strong>Food</strong> (Chemical) → <strong>Tire</strong> (Mechanical) → <strong>Dynamo</strong> (Electrical) → <strong>Windows &amp; Streetlights</strong>
         </div>
       </div>
 
@@ -1084,7 +1219,7 @@ class OmniEnergyLabApp {
         sBar.style.width = `${pct}%`;
         box.querySelector('#val-stamina').textContent = `${pct}%`;
         box.querySelector('#met-watts').textContent = `${st.powerOutputW} W`;
-        box.querySelector('#met-town-state').textContent = st.powerOutputW > 18 ? 'Lit Brightly!' : 'Off';
+        box.querySelector('#met-town-state').textContent = st.powerOutputW > 12 ? 'Lit Brightly!' : 'Dark';
       }
       const fBar = box.querySelector('#bar-fuel');
       if (fBar) {
@@ -1099,70 +1234,113 @@ class OmniEnergyLabApp {
     this._syncControlsFn = () => this._renderStationControls('chemical');
   }
 
-  // --- Station 6: Electrical Circuit Bench HUD ---
+  // --- Station 6: Snap-Grid Circuit Builder Kit HUD (Empty Pegboard + Full Modular Parts Kit!) ---
   _buildElectricalHUD(box, st) {
+    const oriLabels = ['0° ↔ Right', '90° ↓ Down', '180° ← Left', '270° ↑ Up'];
+    const switches = st.placedParts.filter((p) => p.type === 'switch');
+    const hasSwitch = switches.length > 0;
+    const anySwitchClosed = switches.some((s) => s.isClosed);
+
+    const bannerClass = st.shortCircuit ? 'danger' : st.circuitClosed ? 'ok' : 'warn';
+
     box.innerHTML = `
       <div class="control-group">
-        <div id="circuit-status-banner" class="status-banner ${st.circuitClosed ? 'ok' : 'warn'}">
-          ${st.openReason}
+        <div id="circuit-status-banner" class="status-banner ${bannerClass}">
+          ${st.statusMessage}
         </div>
-        <button id="btn-knife-switch" class="action-btn ${st.switchClosed ? '' : 'amber'}" type="button">
-          ⚡ ${st.switchClosed ? 'Open Copper Knife Switch' : 'Close Copper Knife Switch'}
-        </button>
 
-        <div class="slider-label-line"><span>Drag Components in 3D or Click to Snap In / Out:</span></div>
-        <div class="btn-grid-3">
-          <button class="chip-btn ${st.bays.bulb ? 'active' : ''}" data-dev="bulb" type="button">
-            💡 Bulb (${st.bays.bulb ? 'In' : 'Tray'})
+        <div class="btn-grid-2">
+          <button id="btn-flip-switch" class="action-btn ${anySwitchClosed ? '' : 'amber'}" type="button">
+            ${
+              !hasSwitch
+                ? '🎛️ Snap a Switch First'
+                : anySwitchClosed
+                ? '⚡ Switch: ON (Click OFF)'
+                : '⚡ Switch: OFF (Click ON)'
+            }
           </button>
-          <button class="chip-btn ${st.bays.buzzer ? 'active' : ''}" data-dev="buzzer" type="button">
-            🔊 Buzzer (${st.bays.buzzer ? 'In' : 'Tray'})
-          </button>
-          <button class="chip-btn ${st.bays.motor ? 'active' : ''}" data-dev="motor" type="button">
-            🌀 Motor (${st.bays.motor ? 'In' : 'Tray'})
+          <button id="btn-rotate-part" class="chip-btn" type="button" title="Keyboard shortcut: R">
+            ↻ Rotate: ${oriLabels[st.orientation]}
           </button>
         </div>
-        <div class="btn-grid-3">
-          ${[0, 1, 2]
-            .map(
-              (idx) => `
-            <button class="chip-btn ${st.wiresInstalled[idx] ? 'active' : ''}" data-wire="${idx}" type="button">
-              🔌 Wire ${idx + 1} (${st.wiresInstalled[idx] ? 'In' : 'Out'})
+
+        <div class="slider-label-line">
+          <span>1. Pick a Part (or Click 3D Kit) → 2. Click Pegs:</span>
+        </div>
+        <div class="parts-palette-grid">
+          ${SNAP_PART_CATALOG.map(
+            (item) => `
+            <button
+              class="chip-btn compact ${st.selectedTool === item.type ? 'active' : ''}"
+              data-tool="${item.type}"
+              type="button"
+            >
+              <span>${item.icon}</span>
+              <span>${item.label}</span>
             </button>`
-            )
-            .join('')}
+          ).join('')}
+          <button
+            class="chip-btn compact danger-tool ${st.selectedTool === 'remove' ? 'active' : ''}"
+            data-tool="remove"
+            type="button"
+          >
+            <span>🗑️</span>
+            <span>Remove Part</span>
+          </button>
         </div>
 
         <div class="telemetry-grid">
           <div class="metric-box">
-            <span class="metric-label">Bulb Output</span>
-            <span class="metric-value">${st.circuitClosed ? 'Light + Heat' : 'Off'}</span>
+            <span class="metric-label">Parts on Board</span>
+            <span class="metric-value">${st.placedParts.length} snapped</span>
           </div>
           <div class="metric-box">
-            <span class="metric-label">Buzzer &amp; Motor</span>
-            <span class="metric-value">${st.circuitClosed ? 'Sound + Motion' : 'Off'}</span>
+            <span class="metric-label">Active Loads</span>
+            <span class="metric-value" style="font-size:12px">${
+              st.activeOutputs.length > 0 ? st.activeOutputs.join(', ') : 'None'
+            }</span>
           </div>
+        </div>
+
+        <div class="btn-grid-2">
+          <button id="btn-demo-circuit" class="chip-btn" type="button">📐 Example Loop</button>
+          <button id="btn-clear-board" class="chip-btn" type="button">🧹 Clear Pegboard</button>
         </div>
       </div>
     `;
 
-    box.querySelector('#btn-knife-switch')?.addEventListener('click', () => {
-      st.toggleKnifeSwitch();
+    box.querySelectorAll('[data-tool]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        st.selectTool(btn.dataset.tool);
+        this.audio.playClick(760, 0.18);
+        this._renderStationControls('electrical');
+      });
+    });
+
+    box.querySelector('#btn-rotate-part')?.addEventListener('click', () => {
+      st.rotateOrientation();
       this._renderStationControls('electrical');
     });
 
-    box.querySelectorAll('[data-dev]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        st.toggleDevice(btn.dataset.dev);
-        this._renderStationControls('electrical');
-      });
+    box.querySelector('#btn-flip-switch')?.addEventListener('click', () => {
+      if (!hasSwitch) {
+        st.selectTool('switch');
+        this.audio.playClick(640, 0.2);
+      } else {
+        st.toggleAllSwitches();
+      }
+      this._renderStationControls('electrical');
     });
 
-    box.querySelectorAll('[data-wire]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        st.toggleWire(Number(btn.dataset.wire));
-        this._renderStationControls('electrical');
-      });
+    box.querySelector('#btn-demo-circuit')?.addEventListener('click', () => {
+      st.loadStarterExample();
+      this._renderStationControls('electrical');
+    });
+
+    box.querySelector('#btn-clear-board')?.addEventListener('click', () => {
+      this.audio.playClick(480, 0.22);
+      st.clearBoard();
+      this._renderStationControls('electrical');
     });
 
     this._syncControlsFn = () => this._renderStationControls('electrical');
@@ -1192,7 +1370,7 @@ class OmniEnergyLabApp {
       pin.el.style.top = `${(-p.y * 0.5 + 0.5) * h}px`;
     });
 
-    // 2. Light Station Mode A Reflection Angle Readouts (θᵢ = θᵣ)
+    // 2. Light Station Mode A Reflection Angle Readouts (4 Mirrors + 0° Straight-Back!)
     const lightSt = this.stations.get('light');
     const showAngles =
       this.activeStationId === 'light' && lightSt && lightSt.mode === 'reflection' && !this.camTween.active;
@@ -1209,7 +1387,10 @@ class OmniEnergyLabApp {
         return;
       }
       el.classList.remove('hidden');
-      el.textContent = `M${ann.mirrorNumber}: θᵢ ${ann.angleDeg}° = θᵣ ${ann.angleDeg}°`;
+      el.classList.toggle('retro', Boolean(ann.isStraightBack));
+      el.textContent = ann.isStraightBack
+        ? `M${ann.mirrorNumber}: θᵢ 0° = θᵣ 0° (Straight Back!)`
+        : `M${ann.mirrorNumber}: θᵢ ${ann.angleDeg}° = θᵣ ${ann.angleDeg}°`;
       el.style.left = `${(p.x * 0.5 + 0.5) * w}px`;
       el.style.top = `${(-p.y * 0.5 + 0.5) * h}px`;
     });
@@ -1221,8 +1402,6 @@ class OmniEnergyLabApp {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
-    this.composer.setSize(w, h);
-    this.bloomPass.resolution.set(w, h);
   }
 
   _animate() {
@@ -1250,7 +1429,8 @@ class OmniEnergyLabApp {
     if (this.liveMetricUpdaters) this.liveMetricUpdaters();
     this._updateProjectedOverlays();
 
-    this.composer.render();
+    // Direct crisp hardware-antialiased render (no bloom blur, no fog haze!)
+    this.renderer.render(this.scene, this.camera);
   }
 }
 

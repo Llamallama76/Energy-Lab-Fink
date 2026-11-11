@@ -1,7 +1,7 @@
 /**
  * Pure Web Audio API Physics & Laboratory Sound Synthesizer
- * Zero external audio assets — synthesizes tuning forks, speakers, switches,
- * thermal coils, toaster chimes, coaster rails, collisions, engines, and buzzers.
+ * Zero external audio assets — synthesizes tuning forks, deep punchy bass woofers,
+ * switches, thermal coils, toaster chimes, collisions, engines, buzzers, and sirens.
  */
 
 export class AudioEngine {
@@ -12,15 +12,14 @@ export class AudioEngine {
     this.muted = false;
     this.noiseBuffer = null;
 
-    // Continuous station sound loops
     this.loops = {
       subwoofer: null,
-      buzzer: null,
+      siren: null,
       motor: null,
-      bunsen: null,
-      engine: null
+      bunsen: null
     };
     this.lastEnginePulse = 0;
+    this.lastSubBeat = 0;
   }
 
   ensureContext() {
@@ -29,11 +28,11 @@ export class AudioEngine {
       if (!AudioCtx) return null;
       this.ctx = new AudioCtx();
       this.compressor = this.ctx.createDynamicsCompressor();
-      this.compressor.threshold.value = -16;
-      this.compressor.knee.value = 20;
-      this.compressor.ratio.value = 6;
+      this.compressor.threshold.value = -12;
+      this.compressor.knee.value = 16;
+      this.compressor.ratio.value = 5;
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.muted ? 0 : 0.72;
+      this.masterGain.gain.value = this.muted ? 0 : 0.88;
       this.compressor.connect(this.masterGain);
       this.masterGain.connect(this.ctx.destination);
       this._buildNoiseBuffer();
@@ -64,7 +63,7 @@ export class AudioEngine {
   setMuted(muted) {
     this.muted = muted;
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.72, this.ctx.currentTime, 0.04);
+      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.88, this.ctx.currentTime, 0.04);
     }
   }
 
@@ -80,9 +79,10 @@ export class AudioEngine {
   _stopLoop(name) {
     const loop = this.loops[name];
     if (!loop) return;
+    if (loop.timer) clearInterval(loop.timer);
     try {
       if (loop.gain && this.ctx) {
-        loop.gain.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.05);
+        loop.gain.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.04);
       }
       setTimeout(() => {
         try {
@@ -91,26 +91,25 @@ export class AudioEngine {
             if (n.disconnect) n.disconnect();
           });
         } catch (_) {}
-      }, 90);
+      }, 80);
     } catch (_) {}
     this.loops[name] = null;
   }
 
-  playClick(pitch = 950, strength = 0.22) {
+  playClick(pitch = 950, strength = 0.24) {
     const ctx = this.ensureContext();
     if (!ctx || this.muted) return;
     const now = ctx.currentTime;
 
-    // White-noise crisp transient + short resonant body
     if (this.noiseBuffer) {
       const src = ctx.createBufferSource();
       src.buffer = this.noiseBuffer;
       const filter = ctx.createBiquadFilter();
       filter.type = 'bandpass';
       filter.frequency.value = pitch * 1.6;
-      filter.Q.value = 3.2;
+      filter.Q.value = 3.0;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(strength * 0.7, now);
+      g.gain.setValueAtTime(strength * 0.75, now);
       g.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
       src.connect(filter);
       filter.connect(g);
@@ -124,7 +123,7 @@ export class AudioEngine {
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(pitch, now);
     osc.frequency.exponentialRampToValueAtTime(pitch * 0.42, now + 0.035);
-    gain.gain.setValueAtTime(strength * 0.45, now);
+    gain.gain.setValueAtTime(strength * 0.5, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
     osc.connect(gain);
     gain.connect(this.compressor);
@@ -133,41 +132,38 @@ export class AudioEngine {
   }
 
   /**
-   * Station 1A: Tuning Fork strike (pure fundamental sine + metallic clang mode)
+   * Station 1A: Tuning Fork strike (pure fundamental sine + metallic clang overtone)
    */
-  playTuningFork(frequency = 440, forceNormalized = 0.7) {
+  playTuningFork(frequency = 440, forceNormalized = 0.75) {
     const ctx = this.ensureContext();
     if (!ctx || this.muted) return;
     const now = ctx.currentTime;
-    const amp = Math.max(0.08, Math.min(1, forceNormalized));
+    const amp = Math.max(0.1, Math.min(1, forceNormalized));
 
-    // Fundamental pure tone
     const osc1 = ctx.createOscillator();
     const g1 = ctx.createGain();
     osc1.type = 'sine';
     osc1.frequency.setValueAtTime(frequency, now);
     g1.gain.setValueAtTime(0.001, now);
-    g1.gain.linearRampToValueAtTime(0.42 * amp, now + 0.012);
-    g1.gain.exponentialRampToValueAtTime(0.0008, now + 3.4);
+    g1.gain.linearRampToValueAtTime(0.48 * amp, now + 0.012);
+    g1.gain.exponentialRampToValueAtTime(0.0008, now + 3.6);
     osc1.connect(g1);
     g1.connect(this.compressor);
     osc1.start(now);
-    osc1.stop(now + 3.5);
+    osc1.stop(now + 3.7);
 
-    // Metallic clang overtone (~6.27x fundamental, decays rapidly like real steel fork)
     const osc2 = ctx.createOscillator();
     const g2 = ctx.createGain();
     osc2.type = 'sine';
     osc2.frequency.setValueAtTime(Math.min(7500, frequency * 6.27), now);
-    g2.gain.setValueAtTime(0.18 * amp, now);
+    g2.gain.setValueAtTime(0.2 * amp, now);
     g2.gain.exponentialRampToValueAtTime(0.0005, now + 0.24);
     osc2.connect(g2);
     g2.connect(this.compressor);
     osc2.start(now);
     osc2.stop(now + 0.26);
 
-    // Rubber mallet thud
-    this.playClick(320, 0.25 * amp);
+    this.playClick(320, 0.26 * amp);
   }
 
   playPingPongBounce(intensity = 0.6) {
@@ -179,7 +175,7 @@ export class AudioEngine {
     osc.type = 'sine';
     osc.frequency.setValueAtTime(1950, now);
     osc.frequency.exponentialRampToValueAtTime(780, now + 0.028);
-    g.gain.setValueAtTime(0.28 * Math.min(1, intensity), now);
+    g.gain.setValueAtTime(0.32 * Math.min(1, intensity), now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.032);
     osc.connect(g);
     g.connect(this.compressor);
@@ -188,7 +184,9 @@ export class AudioEngine {
   }
 
   /**
-   * Station 1B: Continuous subwoofer bass cone hum
+   * Station 1B: Deep, Loud, Punchy Subwoofer Bass Synth
+   * Uses fundamental + upper-bass sawtooth/triangle harmonics + resonant cabinet lowpass
+   * + rhythmic bass thump LFO so it sounds unmistakably loud & bass-heavy even on classroom speakers!
    */
   updateSubwoofer(volumeNorm = 0, freq = 55) {
     if (volumeNorm <= 0.02 || this.muted) {
@@ -199,28 +197,79 @@ export class AudioEngine {
     if (!ctx) return;
 
     if (!this.loops.subwoofer) {
-      const osc = ctx.createOscillator();
-      const oscSub = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      oscSub.type = 'triangle';
-      osc.frequency.value = freq;
-      oscSub.frequency.value = freq * 2;
-      const subGain = ctx.createGain();
-      subGain.gain.value = 0.18;
-      gain.gain.value = 0.001;
-      osc.connect(gain);
-      oscSub.connect(subGain);
-      subGain.connect(gain);
-      gain.connect(this.compressor);
-      osc.start();
-      oscSub.start();
-      this.loops.subwoofer = { osc, oscSub, gain, nodes: [osc, oscSub, subGain, gain] };
+      // Fundamental sub sine
+      const subOsc = ctx.createOscillator();
+      subOsc.type = 'sine';
+      subOsc.frequency.value = freq;
+
+      // Rich punchy upper-bass harmonic oscillator (audible on ALL speakers!)
+      const punchOsc = ctx.createOscillator();
+      punchOsc.type = 'sawtooth';
+      punchOsc.frequency.value = freq * 2;
+
+      // Third warm bass body oscillator
+      const warmOsc = ctx.createOscillator();
+      warmOsc.type = 'triangle';
+      warmOsc.frequency.value = freq * 1.5;
+
+      // Resonant subwoofer cabinet filter with warm 110Hz punch
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 240;
+      filter.Q.value = 3.8;
+
+      // Rhythmic bass throb LFO (3.2 Hz woofer pulse) so students clearly hear pulsing bass waves!
+      const lfo = ctx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 3.4;
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 0.28;
+
+      const punchGain = ctx.createGain();
+      punchGain.gain.value = 0.65;
+
+      const warmGain = ctx.createGain();
+      warmGain.gain.value = 0.45;
+
+      const masterSubGain = ctx.createGain();
+      masterSubGain.gain.value = 0.001;
+
+      subOsc.connect(filter);
+      punchOsc.connect(punchGain);
+      punchGain.connect(filter);
+      warmOsc.connect(warmGain);
+      warmGain.connect(filter);
+
+      filter.connect(masterSubGain);
+      lfo.connect(lfoGain);
+      lfoGain.connect(masterSubGain.gain);
+
+      masterSubGain.connect(this.compressor);
+
+      subOsc.start();
+      punchOsc.start();
+      warmOsc.start();
+      lfo.start();
+
+      this.loops.subwoofer = {
+        subOsc,
+        punchOsc,
+        warmOsc,
+        filter,
+        lfoGain,
+        gain: masterSubGain,
+        nodes: [subOsc, punchOsc, warmOsc, lfo, lfoGain, punchGain, warmGain, filter, masterSubGain]
+      };
     }
+
     const loop = this.loops.subwoofer;
-    loop.osc.frequency.setTargetAtTime(freq, ctx.currentTime, 0.05);
-    loop.oscSub.frequency.setTargetAtTime(freq * 2, ctx.currentTime, 0.05);
-    loop.gain.gain.setTargetAtTime(0.28 * volumeNorm, ctx.currentTime, 0.06);
+    const now = ctx.currentTime;
+    loop.subOsc.frequency.setTargetAtTime(freq, now, 0.04);
+    loop.punchOsc.frequency.setTargetAtTime(freq * 2, now, 0.04);
+    loop.warmOsc.frequency.setTargetAtTime(freq * 3, now, 0.04);
+    loop.filter.frequency.setTargetAtTime(180 + volumeNorm * 190, now, 0.05);
+    loop.lfoGain.gain.setTargetAtTime(0.24 * volumeNorm, now, 0.05);
+    loop.gain.gain.setTargetAtTime(0.68 * volumeNorm, now, 0.05);
   }
 
   /**
@@ -236,7 +285,7 @@ export class AudioEngine {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, now + idx * 0.07);
       g.gain.setValueAtTime(0.001, now + idx * 0.07);
-      g.gain.linearRampToValueAtTime(0.16, now + idx * 0.07 + 0.02);
+      g.gain.linearRampToValueAtTime(0.18, now + idx * 0.07 + 0.02);
       g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.45);
       osc.connect(g);
       g.connect(this.compressor);
@@ -271,7 +320,7 @@ export class AudioEngine {
       src.start();
       this.loops.bunsen = { gain, filter, nodes: [src, filter, gain] };
     }
-    this.loops.bunsen.gain.gain.setTargetAtTime(0.11 * intensity, ctx.currentTime, 0.08);
+    this.loops.bunsen.gain.gain.setTargetAtTime(0.12 * intensity, ctx.currentTime, 0.08);
     this.loops.bunsen.filter.frequency.setTargetAtTime(650 + intensity * 850, ctx.currentTime, 0.08);
   }
 
@@ -285,7 +334,7 @@ export class AudioEngine {
       const g = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, now);
-      g.gain.setValueAtTime(i === 0 ? 0.24 : 0.1, now);
+      g.gain.setValueAtTime(i === 0 ? 0.26 : 0.12, now);
       g.gain.exponentialRampToValueAtTime(0.0008, now + 0.85);
       osc.connect(g);
       g.connect(this.compressor);
@@ -295,27 +344,27 @@ export class AudioEngine {
   }
 
   /**
-   * Station 4: Pin collision scatter sound
+   * Station 4: Multi-pin bowling scatter sound
    */
   playPinScatter(energyNorm = 0.6, count = 5) {
     const ctx = this.ensureContext();
     if (!ctx || this.muted) return;
-    const strength = Math.max(0.15, Math.min(1, energyNorm));
+    const strength = Math.max(0.18, Math.min(1, energyNorm));
     for (let i = 0; i < count; i++) {
-      const delay = i * (0.025 + Math.random() * 0.035);
+      const delay = i * (0.022 + Math.random() * 0.032);
       const now = ctx.currentTime + delay;
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
       osc.type = 'triangle';
-      const base = 360 + Math.random() * 420;
+      const base = 360 + Math.random() * 440;
       osc.frequency.setValueAtTime(base, now);
-      osc.frequency.exponentialRampToValueAtTime(base * 0.45, now + 0.075);
-      g.gain.setValueAtTime(0.24 * strength * (1 - i * 0.11), now);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
+      osc.frequency.exponentialRampToValueAtTime(base * 0.45, now + 0.08);
+      g.gain.setValueAtTime(0.26 * strength * (1 - i * 0.09), now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
       osc.connect(g);
       g.connect(this.compressor);
       osc.start(now);
-      osc.stop(now + 0.09);
+      osc.stop(now + 0.095);
     }
   }
 
@@ -332,7 +381,7 @@ export class AudioEngine {
       const g = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.value = f;
-      g.gain.setValueAtTime(0.13, now + idx * 0.055);
+      g.gain.setValueAtTime(0.14, now + idx * 0.055);
       g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.055 + 0.18);
       osc.connect(g);
       g.connect(this.compressor);
@@ -359,7 +408,7 @@ export class AudioEngine {
     filter.type = 'lowpass';
     filter.frequency.value = 340 + rpmNorm * 280;
 
-    g.gain.setValueAtTime(0.14, now);
+    g.gain.setValueAtTime(0.15, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
     osc.connect(filter);
     filter.connect(g);
@@ -369,29 +418,43 @@ export class AudioEngine {
   }
 
   /**
-   * Station 6: Electric Buzzer & DC Motor loops
+   * Station 6: Snap Circuits Electronic Siren (rising/falling wail) & DC Fan Motor whirr
    */
-  updateCircuitOutputs({ buzzerActive = false, motorActive = false }) {
-    if (!buzzerActive || this.muted) {
-      this._stopLoop('buzzer');
+  updateCircuitOutputs({ sirenActive = false, motorActive = false }) {
+    if (!sirenActive || this.muted) {
+      this._stopLoop('siren');
     } else {
       const ctx = this.ensureContext();
-      if (ctx && !this.loops.buzzer) {
+      if (ctx && !this.loops.siren) {
         const osc = ctx.createOscillator();
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
         const filter = ctx.createBiquadFilter();
         const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.value = 235;
-        filter.type = 'bandpass';
-        filter.frequency.value = 920;
-        filter.Q.value = 2.4;
+
+        osc.type = 'square';
+        osc.frequency.value = 740;
+
+        // Classic Snap Circuits U2 Alarm IC rising/falling siren sweep!
+        lfo.type = 'triangle';
+        lfo.frequency.value = 2.2;
+        lfoGain.gain.value = 260;
+
+        filter.type = 'lowpass';
+        filter.frequency.value = 1900;
+
         gain.gain.value = 0.001;
+
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
         osc.connect(filter);
         filter.connect(gain);
         gain.connect(this.compressor);
+
         osc.start();
-        gain.gain.setTargetAtTime(0.12, ctx.currentTime, 0.04);
-        this.loops.buzzer = { gain, nodes: [osc, filter, gain] };
+        lfo.start();
+        gain.gain.setTargetAtTime(0.15, ctx.currentTime, 0.04);
+        this.loops.siren = { gain, nodes: [osc, lfo, lfoGain, filter, gain] };
       }
     }
 
@@ -403,12 +466,12 @@ export class AudioEngine {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'triangle';
-        osc.frequency.value = 118;
+        osc.frequency.value = 135;
         gain.gain.value = 0.001;
         osc.connect(gain);
         gain.connect(this.compressor);
         osc.start();
-        gain.gain.setTargetAtTime(0.055, ctx.currentTime, 0.08);
+        gain.gain.setTargetAtTime(0.065, ctx.currentTime, 0.08);
         this.loops.motor = { gain, nodes: [osc, gain] };
       }
     }

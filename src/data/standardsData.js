@@ -33,131 +33,137 @@ export const STATIONS_META = [
     number: 1,
     shortLabel: 'Sound',
     title: 'Sound Energy & Vibration Lab',
-    subtitle: 'Vibration, Pitch, Volume & Acoustic Motion',
+    subtitle: 'Vibration, Sound Waves in Air, Pitch & Deep Bass Motion',
     accent: '#22d3ee',
     benchmarks: ['SC.5.P.10.1', 'SC.5.P.10.2'],
-    benchmarkSummary: 'Sound energy is produced by vibrating matter and transfers energy that can push objects into motion.',
+    benchmarkSummary:
+      'Sound energy is produced by vibrating matter and travels as waves through air that can push objects into motion.',
     howToSteps: [
-      'Choose Apparatus A (Tuning Fork) or Apparatus B (Subwoofer Cone) at the top of the control deck.',
-      'In Tuning Fork mode, slide Fork Size to change pitch (frequency in Hz) and Strike Force to change volume, then tap Strike Fork (or click the tuning fork directly in 3D!).',
-      'Slide the Ping-Pong Ball into contact with the vibrating metal prong and watch how sound vibrations transfer motion.',
-      'Switch to Speaker Cone & Particles and turn up the Volume slider to observe what happens to the colorful sprinkles on the pulsing speaker membrane.'
+      'Choose Apparatus A (Tuning Fork) or Apparatus B (Deep-Bass Speaker Cone) at the top of the panel.',
+      'Slide Fork Size (pitch) and Strike Force (volume), then click Strike Fork (or tap the 3D fork).',
+      'Adjust the Ping-Pong Ball Air Gap slider: test 0 cm (touching prong for a big kick) AND 1–8 cm away to watch sound waves in the air push the ball without touching!',
+      'Switch to Speaker Cone & Particles and turn up the Subwoofer Volume to hear the deep bass rumble and watch sprinkles bounce high into the air.'
     ],
     inquiries: [
-      'What happens to the ping-pong ball when you increase volume (strike force) versus when you only change pitch (fork size)?',
-      'What proof do you see at both apparatuses that sound energy causes physical motion?'
+      'Why does the ping-pong ball still sway when there is an air gap between it and the vibrating tuning fork?',
+      'What happens to the ping-pong ball and speaker sprinkles when you increase volume versus when you change pitch?'
     ],
     scienceNote:
-      'Smaller tuning forks vibrate faster (higher frequency = higher pitch), while harder strikes make the prongs swing wider (larger amplitude = louder volume), kicking the ping-pong ball much further!'
+      'Vibrating prongs compress air molecules into invisible sound waves that travel across the gap and push the lightweight ping-pong ball! Touching the prong transfers mechanical vibrations directly for an even bigger kick.'
   },
   {
     id: 'light',
     number: 2,
     shortLabel: 'Light',
     title: 'Light Energy Optics Bench',
-    subtitle: 'Reflection, Refraction, Dispersion & Absorption',
+    subtitle: '4-Mirror Reflection, 0° Bounce-Back, Refraction & Shape Shadows',
     accent: '#38bdf8',
     benchmarks: ['SC.5.P.10.1'],
-    benchmarkSummary: 'Light travels in straight lines until it strikes an object or new medium where it reflects, refracts, or absorbs.',
+    benchmarkSummary:
+      'Light travels in straight lines until it strikes a surface or new medium where it reflects, refracts, or is absorbed.',
     howToSteps: [
-      'In Mode A (Laser & Mirror Puzzle), drag the 3D mirror mounts (or adjust Mirror Angle sliders) to bounce the laser beam around the barriers and hit the glowing Sensor Target.',
-      'Notice the dashed Normal Line at each mirror: compare the Angle of Incidence (incoming) to the Angle of Reflection (outgoing).',
-      'Switch to Mode B (Refraction Chamber) to inspect the Pencil in Water beaker and rotate the White Light Prism to split white light into a rainbow spectrum.',
-      'Switch to Mode C (Shadow Lab) to swap Opaque Wood, Translucent Frosted Glass, and Transparent Clear Glass blocks while sliding the light source.'
+      'In Mode A (Reflection), rotate all 4 mirrors (in 3D or with sliders) to steer the laser around the barriers into the Sensor Target.',
+      'Click "Straight-On Bounce Back (0°)" to aim Mirror 1 flat against the beam and see light reflect straight back along the exact same line!',
+      'Switch to Mode B (Refraction) to observe the "broken" magnified pencil in water and rotate the glass prism to split white light into a rainbow.',
+      'Switch to Mode C (Shadow Lab): click the 3D object on the stand to morph its shape (Block, Star, Circle, or Silly Puppet), and use the side panel to test Opaque, Translucent, and Transparent materials!'
     ],
     inquiries: [
-      'Why does the straight pencil look bent and magnified right where it enters the water?',
-      'What causes white light to separate into a rainbow of colors inside the glass prism?'
+      'What happens to a light ray when it strikes a mirror straight-on at a 0° angle along the normal line?',
+      'How does changing the test material from Opaque to Translucent to Transparent change the puppet or star shadow on the screen?'
     ],
     scienceNote:
-      'Light slows down when moving from air into water or glass, causing the ray to bend (refract). Each color wavelength bends by a slightly different amount inside a prism, spreading white light into ROYGBIV!'
+      'Light always obeys Angle of Incidence = Angle of Reflection—including at 0°, where straight-on light bounces straight back! In Shadow Lab, opaque objects block light completely, translucent materials scatter a blurry shadow, and transparent glass lets light pass right through.'
   },
   {
     id: 'thermal',
     number: 3,
     shortLabel: 'Thermal',
     title: 'Thermal Energy & Phase Chamber',
-    subtitle: 'Particle Motion, Phase Change & Heat Transfer',
+    subtitle: 'Water Benchmark Temperatures (0°C/32°F, 24°C/75°F, 100°C/212°F) & Heat',
     accent: '#fb923c',
     benchmarks: ['SC.5.P.10.1', 'SC.5.P.10.2'],
-    benchmarkSummary: 'Thermal energy measures the motion of particles in matter; adding or removing heat causes changes in state and material properties.',
+    benchmarkSummary:
+      'Thermal energy measures particle motion; adding or removing heat changes temperature and state of matter.',
     howToSteps: [
-      'In Apparatus A (Molecular Motion Chamber), drag the Heat / Cool slider between the Cryo Ice Block (-30°C) and the Bunsen Burner Flame (150°C).',
-      'Watch both the live °C / °F thermometer and how the 3D particles rearrange from a vibrating Solid lattice to a sliding Liquid and a fast-bouncing Gas.',
-      'Switch to Apparatus B (Kitchen Toaster Demo), pick a Toast Darkness setting, and push down the Chrome Toaster Lever (or click the lever in 3D!).',
-      'Observe the Nichrome heating coils glow orange-red as thermal energy toasts and browns the bread slices before popping up.'
+      'In Apparatus A (Phase Chamber), use the continuous Heat / Cool slider or click the 3 Water Benchmark buttons: Solid (0°C / 32°F), Liquid (24°C / 75°F), and Gas (100°C / 212°F).',
+      'Compare the °C / °F thermometer with how the 3D particles vibrate in place (Solid), slide past each other (Liquid), or zip rapidly everywhere (Gas).',
+      'Switch to Apparatus B (Kitchen Toaster), pick a Toast Darkness level, and push down the Chrome Lever.',
+      'Watch the glowing red-orange Nichrome coils radiate thermal energy to brown and toast the bread slices.'
     ],
     inquiries: [
-      'What happens to the speed and spacing of the particles when thermal energy is added?',
-      'What observable evidence shows that thermal energy is creating a physical and chemical change inside the toaster?'
+      'What happens to particle speed and spacing as water warms from 0°C (32°F) to 24°C (75°F) to 100°C (212°F)?',
+      'What observable evidence proves that thermal energy creates a change inside the toaster?'
     ],
     scienceNote:
-      'Adding thermal energy makes molecules move faster and spread apart (solid → liquid → gas). Inside the toaster, electrical energy becomes intense radiant heat in the coils, evaporating moisture and browning the bread crust!'
+      'Water freezes into solid ice at 0°C (32°F), flows as liquid water at room temperature (24°C / 75°F), and boils into water vapor gas at 100°C (212°F) as added thermal energy makes molecules move faster and spread apart!'
   },
   {
     id: 'mechanical',
     number: 4,
     shortLabel: 'Mechanical',
     title: 'Mechanical Energy Playground',
-    subtitle: 'Potential vs. Kinetic Energy, Mass & Collisions',
+    subtitle: 'Adjustable Coaster Lift Hill, 1–2 Loop Challenge & 6-Pin Collisions',
     accent: '#34d399',
     benchmarks: ['SC.5.P.10.1', 'SC.5.P.10.2'],
-    benchmarkSummary: 'Mechanical energy combines stored potential energy (position/height) and moving kinetic energy (mass and speed).',
+    benchmarkSummary:
+      'Mechanical energy combines stored potential energy (height) and moving kinetic energy (mass and speed).',
     howToSteps: [
-      'In Apparatus A (Roller Coaster), set the Release Height and Cart Mass sliders, toggle Track Friction on or off, and click Launch Cart.',
-      'Watch the live PE / KE / Thermal Energy bar chart as the cart climbs and dives through the vertical loop.',
-      'Switch to Apparatus B (Ramp Collision Test) and choose either the Heavy Steel Bowling Ball (5.0 kg) or Light Tennis Ball (0.25 kg).',
-      'Set the ramp Release Height and click Release Ball to measure how far the target pins scatter upon collision.'
+      'In Apparatus A (Roller Coaster), drag the yellow Lift Tower up and down in 3D (or use the Starting Height slider) to physically raise or lower the start hill.',
+      'Pick 0 Loops, 1 Loop, or 2 Loops, toggle Friction, and click Launch Cart to test if your starting height gives enough Potential Energy to clear every loop!',
+      'Switch to Apparatus B (Ramp Collision) and compare the Heavy Steel Ball (5.0 kg) against the Light Tennis Ball (0.25 kg).',
+      'Raise the Ramp Height and click Release Ball to see if you can scatter all 6 bowling pins in a chain reaction!'
     ],
     inquiries: [
-      'Where along the roller coaster track is Potential Energy highest, and where is Kinetic Energy highest?',
-      'Why does the heavy steel ball knock the target pins much further than the light tennis ball when released from the exact same height?'
+      'Why must you raise the starting hill higher when you add a 2nd loop or turn Track Friction ON?',
+      'Why can the 5.0 kg steel ball scatter all 6 pins while the 0.25 kg tennis ball from the same height cannot?'
     ],
     scienceNote:
-      'Potential Energy peaks at the highest hill crest and converts into fast Kinetic Energy in the lowest valleys. Because mechanical energy depends on both speed and mass, a heavier ball carries far more kinetic energy into the pins!'
+      'A coaster cart can never climb higher than the Potential Energy stored at its starting hill (and friction turns some mechanical energy into heat). On the ramp, greater mass at the same speed carries far more Kinetic Energy into the pins!'
   },
   {
     id: 'chemical',
     number: 5,
     shortLabel: 'Chemical',
     title: 'Chemical Energy Transformation Bay',
-    subtitle: 'Stored Energy in Food & Fuel Powering Motion & Light',
+    subtitle: 'Tire-Driven Dynamo Generator, Streetlights & Cutaway Car Engine',
     accent: '#facc15',
     benchmarks: ['SC.5.P.10.1', 'SC.5.P.10.4'],
-    benchmarkSummary: 'Chemical energy stored inside food and fuel can be released and transformed into motion, electricity, light, and heat.',
+    benchmarkSummary:
+      'Chemical energy stored in food and fuel transforms into mechanical motion, electricity, light, and thermal energy.',
     howToSteps: [
-      'In Apparatus A (Bicycle Generator & Tiny Town), click an Apple, Banana, or Energy Bar to feed stored chemical energy to the cyclist.',
-      'Watch the Stamina Bar charge as the cyclist pedals the mechanical turbine, sending electricity through the cables to light up Sunshine Bay!',
-      'Switch to Apparatus B (Cutaway Car Engine) and click Pump Gasoline to fill the translucent tank with liquid chemical fuel.',
-      'Turn the Ignition Key ON and adjust Throttle RPM to watch spark plugs ignite fuel, driving the chrome pistons and releasing exhaust heat.'
+      'In Apparatus A (Bike & Tiny Town), feed an Apple, Banana, or Energy Bar to give stored chemical energy to the cyclist.',
+      'Watch the spinning back tire rub the copper Tire Dynamo Generator, sending electricity into Tiny Town to light up all the house windows and 8 streetlights!',
+      'Switch to Apparatus B (Car Engine) and click Pump Gasoline to fill the tank with liquid chemical fuel.',
+      'Turn the Ignition Key ON and slide the Throttle to watch spark plugs ignite fuel vapor and drive the pistons.'
     ],
     inquiries: [
-      'Trace the complete chain of energy transformations starting from the apple all the way to the glowing streetlights in the tiny town.',
-      'Where and in what form is the energy stored before the car engine is started?'
+      'Trace every energy transformation from the food snack through the bicycle tire generator to the glowing house windows and streetlights.',
+      'What happens to the town lights and generator wheel as the cyclist uses up their stored chemical stamina?'
     ],
     scienceNote:
-      'Apple (Chemical) → Cyclist Pedaling (Mechanical) → Generator Coils (Electrical) → Streetlamps (Light + Thermal). In a car, energy waits as Chemical Energy in the gasoline molecules until combustion converts it into piston motion and exhaust heat!'
+      'Food (Chemical Energy) → Pedaling Legs & Spinning Tire (Mechanical Energy) → Spinning Copper Dynamo on the Tire (Electrical Energy) → Glowing House Windows & Streetlights (Light + Thermal Energy)!'
   },
   {
     id: 'electrical',
     number: 6,
     shortLabel: 'Electrical',
-    title: 'Electrical Circuit Bench',
-    subtitle: 'Closed Loops & Multi-Form Energy Outputs',
+    title: 'Snap-Grid Circuit Builder Kit',
+    subtitle: 'Build Custom Closed Circuits with Wires, Switch, Lights, Fan & Siren',
     accent: '#f59e0b',
     benchmarks: ['SC.5.P.10.4'],
-    benchmarkSummary: 'Electricity flows only through a unbroken closed circuit loop and transforms into light, heat, sound, and mechanical motion.',
+    benchmarkSummary:
+      'Electricity flows only through a complete closed loop and transforms into light, sound, heat, and mechanical motion.',
     howToSteps: [
-      'Inspect the wooden magnetic snap-bench: a circuit needs a power source (9V Battery), unbroken Connecting Wires, output devices, and a closed Knife Switch.',
-      'Click or drag components from the Component Tray (Light Bulb, Electric Buzzer, Motor Propeller, or Jumper Wires) into the bench bays and wire slots.',
-      'Click the Copper Knife Switch in 3D (or toggle Close Switch in the controls) to complete the loop and watch glowing electrons flow!',
-      'Try removing a single wire or opening the Knife Switch to test what happens when a gap breaks the circuit path.'
+      'Your 7×5 Snap-Circuits pegboard starts empty so you can invent your own circuit! Pick parts from the Parts Kit (or click them in the 3D organizer tray).',
+      'Snap down a Battery Pack, a Switch, Blue Wire strips (use Rotate 90° or press R to turn parts), and your choice of loads: White, Red, or Blue Lights, a Motor Fan, or an Alarm Siren!',
+      'Connect a complete closed loop from Battery (+) back to Battery (–), then click your Switch on the board (or "Flip Switch ON/OFF") to test it!',
+      'Swap loads or wire two loads side-by-side to compare single loads, series loops, and parallel branches.'
     ],
     inquiries: [
-      'What happens immediately to every device in the loop when the knife switch is opened or one wire is removed?',
-      'Name at least three different forms of energy produced by electrical energy in your completed circuit.'
+      'What must be true about the path from Battery (+) to Battery (–) before any light, fan, or siren will turn on?',
+      'Which forms of energy are produced when you connect a Light, the Motor Fan, and the Alarm Siren?'
     ],
     scienceNote:
-      'Opening the knife switch creates an air gap (open circuit) that stops electric current everywhere in the loop at once. When closed, electrical energy transforms into Light + Heat (bulb), Sound (buzzer), and Mechanical motion (spinning motor fan)!'
+      'Electric current requires an unbroken closed loop! When you flip the switch ON, electrical energy transforms into Light + Heat (White/Red/Blue lamps), Mechanical motion (spinning Motor Fan), and Sound energy (Alarm Siren).'
   }
 ];
