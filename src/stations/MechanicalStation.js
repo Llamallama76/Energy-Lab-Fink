@@ -160,11 +160,11 @@ export class MechanicalStation {
     this.liftHandle.position.y = Math.max(0.14, startY - 0.035);
 
     const pts = [];
-    // 1. Raised Starting Platform & Smooth First Drop
+    // 1. Monotonically downward-sloping Starting Platform & First Drop (zero upward spline arch!)
     pts.push(new THREE.Vector3(-1.44, startY, 0.0));
-    pts.push(new THREE.Vector3(-1.34, startY, 0.0));
-    pts.push(new THREE.Vector3(-1.04, (startY + this.minTrackY) * 0.52, 0.0));
-    pts.push(new THREE.Vector3(-0.76, this.minTrackY + 0.03, 0.0));
+    pts.push(new THREE.Vector3(-1.31, startY - 0.032, 0.0));
+    pts.push(new THREE.Vector3(-1.04, (startY + this.minTrackY) * 0.50, 0.0));
+    pts.push(new THREE.Vector3(-0.76, this.minTrackY + 0.028, 0.0));
     pts.push(new THREE.Vector3(-0.54, this.minTrackY, 0.0));
 
     const supportUs = [0.09, 0.2];
@@ -178,7 +178,7 @@ export class MechanicalStation {
       pts.push(new THREE.Vector3(1.44, this.minTrackY + 0.015, 0.0));
       supportUs.push(0.38, 0.56, 0.75, 0.96);
     } else if (this.loopCount === 1) {
-      // 1 Loop: Vertical Loop crest = 48 cm -> requires Start Height >= 50 cm (or ~60 cm with Friction ON)
+      // 1 Loop: Vertical Loop crest = 48 cm -> requires Start Height >= 48 cm (or ~58 cm with Friction ON)
       const top1 = this.minTrackY + 0.48 * 0.88;
       const r1 = (top1 - this.minTrackY) / 2;
       const cy1 = this.minTrackY + r1;
@@ -199,7 +199,7 @@ export class MechanicalStation {
       pts.push(new THREE.Vector3(1.44, this.minTrackY + 0.015, 0.0));
       supportUs.push(0.45, 0.74, 0.88, 0.98);
     } else {
-      // 2 Loops Challenge! Loop 1 crest = 46 cm, Giant Loop 2 crest = 62 cm -> requires Start Height >= 64 cm!
+      // 2 Loops Challenge! Loop 1 crest = 46 cm, Giant Loop 2 crest = 62 cm -> requires Start Height >= 62 cm!
       const top1 = this.minTrackY + 0.46 * 0.88;
       const r1 = (top1 - this.minTrackY) / 2;
       const cy1 = this.minTrackY + r1;
@@ -306,7 +306,7 @@ export class MechanicalStation {
   }
 
   // =========================================================================
-  // APPARATUS B: INCLINED RAMP COLLISION TEST (FULL 6-PIN STRIKE SCATTER!)
+  // APPARATUS B: INCLINED RAMP COLLISION TEST (REALISTIC HEIGHT & MASS PHYSICS!)
   // =========================================================================
   _buildRampCollision() {
     this.rampGroup = new THREE.Group();
@@ -389,7 +389,7 @@ export class MechanicalStation {
     this.rampInteractables = [this.rampBall];
     this._syncInteractables();
 
-    // Compact 6-Pin Bowling Triangle so heavy steel ball triggers a full 6-pin chain-reaction scatter!
+    // 6-Pin Bowling Triangle
     this.pins = [];
     const pinCoords = [
       [0.24, 0.0],
@@ -426,9 +426,14 @@ export class MechanicalStation {
         pos: new THREE.Vector3(px, 0.024, pz),
         vel: new THREE.Vector3(),
         rotVel: new THREE.Vector3(),
+        wobble: 0,
         knocked: false
       });
     });
+  }
+
+  getRampHeightCm() {
+    return Math.round(6 + this.rampHeightNorm * 40); // 6 cm (very low gentle slope) -> 46 cm (steep high slope)
   }
 
   setStartHeightCm(cm) {
@@ -443,18 +448,18 @@ export class MechanicalStation {
 
   _resetCartToStart() {
     this.coasterRunning = false;
-    this.cartU = 0.012;
+    this.cartU = 0.008;
     this.cartDir = 1;
     this.thermalLossJ = 0;
 
     const scaleM = 0.65 + (this.cartMass / 10) * 0.65;
     this.massBlock.scale.set(scaleM, scaleM, scaleM);
 
-    const startPt = this.coasterCurve.getPointAt(this.cartU);
-    const h0 = Math.max(0, (startPt.y - this.minTrackY) / 0.88) * 10;
-    this.initialEnergyJ = this.cartMass * 9.81 * h0;
+    // True starting Potential Energy from the Lift Hill height + gentle chain-release push!
+    const hStart = (this.startHeightCm / 100) * 10;
+    this.initialEnergyJ = this.cartMass * 9.81 * (hStart + 0.24);
     this._positionCartAtU(this.cartU);
-    this._computeEnergyStats(h0, 0);
+    this._computeEnergyStats(hStart, 0);
   }
 
   _positionCartAtU(u) {
@@ -491,11 +496,15 @@ export class MechanicalStation {
   _resetRampScene() {
     this.rampRunning = false;
 
-    const angle = 0.12 + this.rampHeightNorm * 0.35;
+    // Physical incline angle from 6 cm (3.3°) up to 46 cm (26.8°)
+    const heightMeters = this.getRampHeightCm() / 100;
+    const angle = Math.asin(Math.min(0.55, heightMeters / this.rampLen));
     this.rampPivot.rotation.z = -angle;
 
-    const leftEndH = 0.024 + Math.sin(angle) * 0.91;
-    this.rampSupportPost.scale.y = Math.max(0.05, leftEndH);
+    const supportXDist = 0.91;
+    const leftEndH = 0.024 + Math.sin(angle) * supportXDist;
+    this.rampSupportPost.position.x = -0.35 - Math.cos(angle) * supportXDist;
+    this.rampSupportPost.scale.y = Math.max(0.04, leftEndH);
     this.rampSupportPost.position.y = leftEndH / 2;
 
     const isSteel = this.ballType === 'steel';
@@ -513,6 +522,7 @@ export class MechanicalStation {
       p.pos.set(p.homeX, 0.024, p.homeZ);
       p.vel.set(0, 0, 0);
       p.rotVel.set(0, 0, 0);
+      p.wobble = 0;
       p.knocked = false;
       p.group.position.copy(p.pos);
       p.group.rotation.set(0, 0, 0);
@@ -545,7 +555,6 @@ export class MechanicalStation {
     if (act === 'dragLiftHeight') {
       this.mode = 'coaster';
       this.draggingLiftTower = true;
-      // Vertical plane facing camera at lift tower world position
       const worldTower = new THREE.Vector3(-1.42, 0.4, 0);
       this.coasterGroup.localToWorld(worldTower);
       this._liftDragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -worldTower.z);
@@ -592,7 +601,7 @@ export class MechanicalStation {
     this.frictionEnabled = false;
     this.coasterStatus = 'Ready! Drag the yellow Lift Tower in 3D (or slider), choose 0–2 Loops & Launch!';
     this.ballType = 'steel';
-    this.rampHeightNorm = 0.78;
+    this.rampHeightNorm = 0.65;
     this.maxPinScatterCm = 0;
     this.pinsKnockedCount = 0;
     this.impactKE = 0;
@@ -621,28 +630,30 @@ export class MechanicalStation {
       const pe = this.cartMass * 9.81 * hScaled;
       let availKE = this.initialEnergyJ - pe - this.thermalLossJ;
 
-      if (availKE <= 0.25) {
+      // Only stall if the cart has left the starting ramp (cartU > 0.14) and hits a hill/loop higher than its energy!
+      if (this.cartU > 0.14 && availKE <= 0.08) {
         const tan = this.coasterCurve.getTangentAt(this.cartU);
         if (this.cartDir === 1) {
           this.coasterStatus =
             '⚠️ Stalled! Not enough starting Potential Energy to clear the crest — raise Start Height!';
           this.audio.playClick(320, 0.2);
         }
-        this.cartDir = tan.y > 0 ? -1 : 1;
-        availKE = 0.4;
+        this.cartDir = tan.y >= 0 ? -1 : 1;
+        availKE = 0.45;
         if (Math.abs(tan.y) < 0.045 || this.thermalLossJ > this.initialEnergyJ * 0.88) {
           this.coasterRunning = false;
         }
       }
 
-      const vPhysical = Math.sqrt((2 * Math.max(0, availKE)) / this.cartMass);
-      const ds = Math.max(0.2, vPhysical * 0.21) * dt;
+      const safeKE = Math.max(this.cartU <= 0.14 ? 0.6 : 0, availKE);
+      const vPhysical = Math.sqrt((2 * safeKE) / this.cartMass);
+      const ds = Math.max(0.22, vPhysical * 0.22) * dt;
       this.cartU += (this.cartDir * ds) / this.trackLength;
 
       if (this.frictionEnabled) {
         this.thermalLossJ = Math.min(
           this.initialEnergyJ,
-          this.thermalLossJ + this.cartMass * 9.81 * ds * 0.52
+          this.thermalLossJ + this.cartMass * 9.81 * ds * 0.48
         );
       }
 
@@ -666,51 +677,88 @@ export class MechanicalStation {
       );
     }
 
-    // 2. Inclined Ramp & Chain-Reaction 6-Pin Scatter Physics
+    // 2. Realistic Inclined Ramp & Mass/Height Dependent Pin Collision Physics
     if (this.rampRunning) {
       const angle = -this.rampPivot.rotation.z;
       const mass = this.ballType === 'steel' ? 5.0 : 0.25;
 
       if (this.ballRampDist < this.rampLen) {
-        const accel = (5 / 7) * 9.81 * Math.sin(angle) * 0.62;
+        // Real rolling sphere acceleration a = (5/7) * g * (sin(theta) - mu_roll * cos(theta))
+        const effSlope = Math.max(0.016, Math.sin(angle) - 0.022 * Math.cos(angle));
+        const accel = (5 / 7) * 9.81 * effSlope * 0.48;
         this.ballLinearVel += accel * dt;
         this.ballRampDist += this.ballLinearVel * dt;
         this.rampBall.rotation.z -= (this.ballLinearVel / this.ballRadius) * dt;
+
         if (this.ballRampDist >= this.rampLen) {
           this.ballRunwayX = -0.35;
-          this.impactKE = Number((0.5 * mass * Math.pow(this.ballLinearVel * 2.2, 2)).toFixed(1));
+          // Display physically scaled Kinetic Energy (J) at bottom of ramp
+          this.impactKE = Number((0.5 * mass * Math.pow(this.ballLinearVel * 1.9, 2)).toFixed(2));
         }
       } else {
         this.ballRunwayX += this.ballLinearVel * dt;
-        this.ballLinearVel *= Math.pow(0.76, dt);
+
+        // Realistic horizontal lane rolling resistance (fuzzy tennis ball decelerates faster than polished steel)
+        const laneDecel = this.ballType === 'steel' ? 0.14 : 0.36;
+        if (Math.abs(this.ballLinearVel) <= laneDecel * dt) {
+          this.ballLinearVel = 0;
+        } else {
+          this.ballLinearVel -= Math.sign(this.ballLinearVel) * laneDecel * dt;
+        }
         this.rampBall.rotation.z -= (this.ballLinearVel / this.ballRadius) * dt;
 
-        // A. Ball-to-Pin Collisions
-        const pinMass = 0.35;
+        // A. Ball-to-Pin Collisions with real KE Tipping Threshold & Energy Absorption per Pin!
+        const pinMass = 0.85;
         let hitCount = 0;
+
         for (const p of this.pins) {
+          if (p.knocked) continue;
           const dx = p.pos.x - this.ballRunwayX;
           const dz = p.pos.z - this.ballRunwayZ;
           const dist = Math.hypot(dx, dz);
-          if (!p.knocked && dist < this.ballRadius + 0.036 && this.ballLinearVel > 0.12) {
+
+          if (dist < this.ballRadius + 0.035 && Math.abs(this.ballLinearVel) > 0.08) {
+            const keBall = 0.5 * mass * this.ballLinearVel * this.ballLinearVel;
+
+            // Standing wooden pin requires >= 0.24 J of impact energy to tip over!
+            if (keBall < 0.24) {
+              // Gentle tap — pin wobbles in place without falling, ball bounces/stops!
+              p.wobble = 0.22;
+              this.ballLinearVel = -Math.abs(this.ballLinearVel) * 0.32;
+              this.ballRunwayX = p.pos.x - (this.ballRadius + 0.037);
+              this.audio.playClick(460, 0.18);
+              break;
+            }
+
+            // Pin tips over and absorbs real kinetic energy (0.46 J) from the sphere!
             p.knocked = true;
             hitCount++;
-            const nx = Math.max(0.45, dx / Math.max(0.001, dist));
-            const spreadZ = dz === 0 ? (Math.random() - 0.5) * 0.45 : Math.sign(dz) * (0.35 + Math.random() * 0.35);
-            const transfer = ((1.9 * mass) / (mass + pinMass)) * this.ballLinearVel;
-            p.vel.set(nx * transfer * 1.35, 0.04 + transfer * 0.22, spreadZ * transfer * 0.85);
-            p.rotVel.set((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 12, -transfer * 9);
+            const nx = Math.max(0.48, dx / Math.max(0.001, dist));
+            const spreadZ =
+              Math.abs(dz) < 0.005
+                ? (Math.random() - 0.5) * 0.32
+                : Math.sign(dz) * (0.38 + Math.random() * 0.28);
 
-            // Heavy steel ball plows right through; light tennis ball loses speed / bounces!
-            const retain = mass > 1 ? 0.91 : -0.22;
-            this.ballLinearVel *= retain;
+            const launchSpeed = Math.min(2.6, (1.45 * mass / (mass + pinMass)) * Math.abs(this.ballLinearVel));
+            p.vel.set(nx * launchSpeed * 1.15, 0.03 + launchSpeed * 0.18, spreadZ * launchSpeed * 0.82);
+            p.rotVel.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 10, -launchSpeed * 8.5);
+
+            if (mass < pinMass) {
+              // Light 0.25 kg tennis ball bounces backward off the heavier 0.85 kg wooden pin!
+              this.ballLinearVel = -Math.abs(this.ballLinearVel) * 0.28;
+            } else {
+              // Heavy 5.0 kg steel ball loses 0.78 J per pin — tips 1 pin on low ramp, 3–4 on medium, all 6 on steep!
+              const keRemain = Math.max(0, keBall - 0.78);
+              this.ballLinearVel = Math.sqrt((2 * keRemain) / mass);
+            }
           }
         }
 
-        // B. Pin-to-Pin Domino / Bowling Chain-Reaction Collisions (so back-row outer pins get blasted too!)
+        // B. Pin-to-Pin Domino / Bowling Chain-Reaction Collisions (only high-energy flying pins knock outer corner pins!)
         for (let i = 0; i < this.pins.length; i++) {
           const a = this.pins[i];
-          if (!a.knocked || a.vel.lengthSq() < 0.08) continue;
+          const aSpeed = a.vel.length();
+          if (!a.knocked || aSpeed < 1.82) continue;
           for (let j = 0; j < this.pins.length; j++) {
             if (i === j) continue;
             const b = this.pins[j];
@@ -721,41 +769,57 @@ export class MechanicalStation {
             if (dist < 0.068) {
               b.knocked = true;
               hitCount++;
-              const spd = a.vel.length() * 0.88;
-              const nx = Math.max(0.4, dx / Math.max(0.001, dist));
-              const nz = (dz / Math.max(0.001, dist)) * 0.9 + (Math.random() - 0.5) * 0.25;
-              b.vel.set(nx * spd, 0.04 + spd * 0.18, nz * spd);
-              b.rotVel.set((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 12, -spd * 8);
-              a.vel.multiplyScalar(0.75);
+              const spd = aSpeed * 0.82;
+              const nx = Math.max(0.42, dx / Math.max(0.001, dist));
+              const nz = (dz / Math.max(0.001, dist)) * 0.88 + (Math.random() - 0.5) * 0.2;
+              b.vel.set(nx * spd, 0.03 + spd * 0.16, nz * spd);
+              b.rotVel.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 10, -spd * 8);
+              a.vel.multiplyScalar(0.68);
             }
           }
         }
 
         if (hitCount > 0) {
-          this.audio.playPinScatter(mass > 1 ? 0.95 : 0.35, Math.min(6, hitCount + 2));
+          this.audio.playPinScatter(
+            Math.min(1, Math.abs(this.ballLinearVel) * (mass > 1 ? 0.65 : 0.3)),
+            Math.min(6, hitCount + 1)
+          );
         }
 
         if (this.ballRunwayX > 1.36) {
           this.ballRunwayX = 1.36;
           this.ballLinearVel = 0;
         }
+        if (this.ballRunwayX < -0.34 && this.ballLinearVel < 0) {
+          this.ballRunwayX = -0.34;
+          this.ballLinearVel = 0;
+        }
       }
       this._updateRampBallPosition();
 
-      let anyMoving = Math.abs(this.ballLinearVel) > 0.025;
+      let anyMoving = Math.abs(this.ballLinearVel) > 0.015;
       let knockedTotal = 0;
       for (const p of this.pins) {
-        if (!p.knocked) continue;
+        if (!p.knocked) {
+          if (p.wobble > 0.002) {
+            p.wobble *= Math.pow(0.08, dt);
+            p.group.rotation.z = Math.sin(p.wobble * 45) * p.wobble;
+            anyMoving = true;
+          } else {
+            p.group.rotation.z = 0;
+          }
+          continue;
+        }
         knockedTotal++;
         p.vel.y -= 9.81 * dt;
         p.pos.addScaledVector(p.vel, dt);
 
         if (p.pos.y <= 0.042) {
           p.pos.y = 0.042;
-          p.vel.y = Math.abs(p.vel.y) * 0.25;
-          p.vel.x *= Math.pow(0.18, dt);
-          p.vel.z *= Math.pow(0.18, dt);
-          p.rotVel.multiplyScalar(Math.pow(0.22, dt));
+          p.vel.y = Math.abs(p.vel.y) * 0.22;
+          p.vel.x *= Math.pow(0.15, dt);
+          p.vel.z *= Math.pow(0.15, dt);
+          p.rotVel.multiplyScalar(Math.pow(0.2, dt));
         }
         if (p.pos.x > 1.38) {
           p.pos.x = 1.38;
@@ -773,7 +837,7 @@ export class MechanicalStation {
 
         const scatterCm = Math.round(Math.hypot(p.pos.x - p.homeX, p.pos.z - p.homeZ) * 100);
         if (scatterCm > this.maxPinScatterCm) this.maxPinScatterCm = scatterCm;
-        if (p.vel.lengthSq() > 0.001) anyMoving = true;
+        if (p.vel.lengthSq() > 0.0008) anyMoving = true;
       }
       this.pinsKnockedCount = knockedTotal;
 

@@ -6,17 +6,10 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
  *
  * - Pegboard starts COMPLETELY EMPTY so students design and build their own circuits freely!
  * - 7 columns (1–7) × 5 rows (A–E) = 35 metallic snap posts.
- * - Available Parts in the 3D Organizer Tray & HUD Palette:
- *    • battery     : 9V/AA Snap Battery Pack (+ / –) [spans 2 pegs]
- *    • switch      : Slide/Knife Switch (S1 — click on board to toggle ON/OFF!) [spans 2 pegs]
- *    • wire2       : 2-Snap Blue Wire Strip [spans 2 pegs]
- *    • wire3       : 3-Snap Long Blue Wire Strip [spans 3 pegs]
- *    • light_white : White Lamp (L1) [spans 2 pegs]
- *    • light_red   : Red LED Light (D1) [spans 2 pegs]
- *    • light_blue  : Blue LED Light (D2) [spans 2 pegs]
- *    • fan         : Motor Fan Spinner (M1) [spans 2 pegs]
- *    • siren       : Electronic Police/Fire Siren (U2) [spans 2 pegs]
- * - Real Kirchhoff Nodal Solver supports Series, Parallel, Single-Load, Multi-Load & Short-Circuit detection!
+ * - Plane-based peg snapping ensures wires and loads ALWAYS connect smoothly onto Battery (+)/(–)
+ *   and existing component terminals without ever getting blocked by 3D part housings!
+ * - Placed pieces can be selected, rotated 90° in-place AFTER placement (via click, Right-Click,
+ *   'T'/'R' key, or "Turn Placed Piece" button), and easily cut/deleted via Delete/Backspace/X key or Cut button!
  */
 
 export const SNAP_PART_CATALOG = [
@@ -44,10 +37,12 @@ export class ElectricalStation {
     this.gridOriginX = 0.36;
     this.gridOriginZ = 0.02;
 
-    // Build tool state
-    this.selectedTool = 'battery'; // part type or 'remove'
-    this.orientation = 0; // 0 = horizontal (+col), 1 = vertical (+row), 2 = -col, 3 = -row
+    // Build & Edit tool state
+    // Tools: any part type from SNAP_PART_CATALOG, 'select' (Select / Turn placed pieces), or 'remove' (Cut / Delete)
+    this.selectedTool = 'battery';
+    this.orientation = 0; // 0 = +col (Right), 1 = +row (Down), 2 = -col (Left), 3 = -row (Up)
     this.hoverPeg = null; // { r, c }
+    this.selectedPartId = null; // Currently highlighted placed piece on the board (for Turn / Cut!)
 
     // Placed parts on the pegboard (starts 100% EMPTY per teacher specification!)
     this.placedParts = [];
@@ -56,17 +51,20 @@ export class ElectricalStation {
     // Circuit solver results
     this.circuitClosed = false;
     this.shortCircuit = false;
-    this.activeOutputs = []; // ['White Light', 'Motor Fan', ...]
+    this.activeOutputs = [];
+    this.energizedSegments = [];
     this.statusMessage =
       'Board is ready! Pick Battery, Wires, Switch & any Load (Lights, Fan, or Siren) and click pegs to snap them in!';
 
     this.interactables = [];
     this.placedMeshesGroup = new THREE.Group();
+    this.selectionHighlightGroup = new THREE.Group();
     this.electronGroup = new THREE.Group();
     this.electronBeads = [];
 
     this._buildPegboardAndOrganizer();
     this._buildPreviewGhost();
+    this._buildSelectionHighlight();
     this._buildElectronPool();
     this._solveCircuitGraph();
   }
@@ -77,6 +75,36 @@ export class ElectricalStation {
     return new THREE.Vector3(x, 0.055, z);
   }
 
+  /**
+   * Computes exact peg coordinates directly from the 3D camera ray intersecting the pegboard plane,
+   * so existing 3D parts (Battery, Switch, Loads, Wires) NEVER block clicking or connecting onto a peg!
+   */
+  getPegInfoFromRay(raycaster) {
+    if (!raycaster) return null;
+    this.root.updateMatrixWorld(true);
+
+    const worldNormal = new THREE.Vector3(0, 1, 0).transformDirection(this.root.matrixWorld).normalize();
+    const planeOriginWorld = this.root.localToWorld(new THREE.Vector3(this.gridOriginX, 0.082, this.gridOriginZ));
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(worldNormal, planeOriginWorld);
+
+    const hitWorld = new THREE.Vector3();
+    if (!raycaster.ray.intersectPlane(plane, hitWorld)) return null;
+
+    const local = this.root.worldToLocal(hitWorld.clone());
+    const floatC = (local.x - this.gridOriginX) / this.pitch + (this.cols - 1) / 2;
+    const floatR = (local.z - this.gridOriginZ) / this.pitch + (this.rows - 1) / 2;
+
+    const c = Math.round(floatC);
+    const r = Math.round(floatR);
+    if (r < 0 || r >= this.rows || c < 0 || c >= this.cols) return null;
+
+    const pegCenter = this.pegToLocal(r, c);
+    const distToPeg = Math.hypot(local.x - pegCenter.x, local.z - pegCenter.z);
+    if (distToPeg > this.pitch * 0.56) return null;
+
+    return { r, c, distToPeg, localX: local.x, localZ: local.z };
+  }
+
   _getSpanPegs(r, c, orientation, span) {
     const dirs = [
       [0, 1],
@@ -84,7 +112,7 @@ export class ElectricalStation {
       [0, -1],
       [-1, 0]
     ];
-    const [dr, dc] = dirs[orientation % 4];
+    const [dr, dc] = dirs[((orientation % 4) + 4) % 4];
     const pegs = [];
     for (let i = 0; i < span; i++) {
       const nr = r + dr * i;
@@ -96,7 +124,6 @@ export class ElectricalStation {
   }
 
   _buildPegboardAndOrganizer() {
-    // 1. Translucent Molded Snap-Circuits Base Grid (Right/Center)
     const boardW = this.cols * this.pitch + 0.24;
     const boardD = this.rows * this.pitch + 0.24;
 
@@ -108,7 +135,6 @@ export class ElectricalStation {
     baseFrame.receiveShadow = true;
     this.root.add(baseFrame);
 
-    // Clear molded acrylic pegboard plate with coordinate grid markings
     const gridTex = this._createGridLabelTexture();
     const acrylicBoard = new THREE.Mesh(
       new RoundedBoxGeometry(boardW, 0.022, boardD, 3, 0.008),
@@ -120,12 +146,14 @@ export class ElectricalStation {
     );
     acrylicBoard.position.set(this.gridOriginX, 0.038, this.gridOriginZ);
     acrylicBoard.receiveShadow = true;
+    acrylicBoard.userData = { isPegboardSurface: true };
     this.root.add(acrylicBoard);
+    this.interactables.push(acrylicBoard);
 
     // 35 Raised Metallic Snap Pegs (7 cols × 5 rows)
     const pegBossMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.35, metalness: 0.4 });
     const snapMetalMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.18, metalness: 0.92 });
-    const hitGeo = new THREE.CylinderGeometry(this.pitch * 0.46, this.pitch * 0.46, 0.04, 16);
+    const hitGeo = new THREE.CylinderGeometry(this.pitch * 0.48, this.pitch * 0.48, 0.05, 16);
     const hitMat = new THREE.MeshBasicMaterial({ visible: false });
 
     for (let r = 0; r < this.rows; r++) {
@@ -136,11 +164,10 @@ export class ElectricalStation {
         boss.position.set(p.x, 0.052, p.z);
         this.root.add(boss);
 
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.022, 16), snapMetalMat);
-        post.position.set(p.x, 0.072, p.z);
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.024, 16), snapMetalMat);
+        post.position.set(p.x, 0.073, p.z);
         this.root.add(post);
 
-        // Generous invisible touch/click target cylinder on every peg for effortless Smartboard snapping!
         const hitTarget = new THREE.Mesh(hitGeo, hitMat);
         hitTarget.position.set(p.x, 0.075, p.z);
         hitTarget.userData = { pegR: r, pegC: c };
@@ -149,7 +176,7 @@ export class ElectricalStation {
       }
     }
 
-    // 2. Molded Store-Bought Kit Parts Organizer Box on the Left (-1.12, 0, 0.02)
+    // 2. Molded Store-Bought Kit Parts Organizer Box on the Left (-1.14, 0, 0.02)
     const boxGroup = new THREE.Group();
     boxGroup.position.set(-1.14, 0, 0.02);
     this.root.add(boxGroup);
@@ -162,7 +189,6 @@ export class ElectricalStation {
     caseTray.receiveShadow = true;
     boxGroup.add(caseTray);
 
-    // Arrange all 9 Parts inside the 3D Kit Organizer so clicking any part in 3D selects it!
     this.trayHighlights = new Map();
     SNAP_PART_CATALOG.forEach((spec, idx) => {
       const col = idx % 2;
@@ -201,6 +227,7 @@ export class ElectricalStation {
     });
 
     this.root.add(this.placedMeshesGroup);
+    this.root.add(this.selectionHighlightGroup);
     this.root.add(this.electronGroup);
   }
 
@@ -213,7 +240,6 @@ export class ElectricalStation {
     ctx.fillStyle = '#172234';
     ctx.fillRect(0, 0, 1024, 768);
 
-    // Subtle peg grid lines
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
     ctx.lineWidth = 3;
     const marginX = 115;
@@ -258,16 +284,76 @@ export class ElectricalStation {
     this.ghostMat = new THREE.MeshBasicMaterial({
       color: 0x22d3ee,
       transparent: true,
-      opacity: 0.38
+      opacity: 0.42,
+      depthTest: false
     });
     this.ghostInvalidMat = new THREE.MeshBasicMaterial({
       color: 0xf43f5e,
       transparent: true,
-      opacity: 0.38
+      opacity: 0.42,
+      depthTest: false
     });
     this.ghostGroup = new THREE.Group();
+    this.ghostGroup.renderOrder = 10;
     this.ghostGroup.visible = false;
     this.root.add(this.ghostGroup);
+  }
+
+  _buildSelectionHighlight() {
+    this.selectionOutlineMat = new THREE.MeshBasicMaterial({
+      color: 0xfacc15,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide
+    });
+    this.selectionHighlightGroup.visible = false;
+  }
+
+  _updateSelectionHighlight() {
+    while (this.selectionHighlightGroup.children.length) {
+      const c = this.selectionHighlightGroup.children.pop();
+      if (c.geometry) c.geometry.dispose();
+    }
+
+    const part = this.placedParts.find((p) => p.id === this.selectedPartId);
+    if (!part) {
+      this.selectionHighlightGroup.visible = false;
+      return;
+    }
+
+    const pStart = this.pegToLocal(part.pegs[0].r, part.pegs[0].c);
+    const pEnd = this.pegToLocal(part.pegs[part.pegs.length - 1].r, part.pegs[part.pegs.length - 1].c);
+    const len = pStart.distanceTo(pEnd) + 0.14;
+    const wid = part.type === 'battery' ? 0.19 : 0.135;
+
+    // Crisp hollow frame around the selected piece on the pegboard
+    const shape = new THREE.Shape();
+    shape.moveTo(-len / 2, -wid / 2);
+    shape.lineTo(len / 2, -wid / 2);
+    shape.lineTo(len / 2, wid / 2);
+    shape.lineTo(-len / 2, wid / 2);
+    shape.closePath();
+
+    const hole = new THREE.Path();
+    const t = 0.012;
+    hole.moveTo(-len / 2 + t, -wid / 2 + t);
+    hole.lineTo(len / 2 - t, -wid / 2 + t);
+    hole.lineTo(len / 2 - t, wid / 2 - t);
+    hole.lineTo(-len / 2 + t, wid / 2 - t);
+    hole.closePath();
+    shape.holes.push(hole);
+
+    const frame = new THREE.Mesh(new THREE.ShapeGeometry(shape), this.selectionOutlineMat);
+    frame.rotation.x = -Math.PI / 2;
+    frame.position.lerpVectors(pStart, pEnd, 0.5);
+    frame.position.y = 0.056;
+    frame.rotation.z = -Math.atan2(pEnd.z - pStart.z, pEnd.x - pStart.x);
+    this.selectionHighlightGroup.add(frame);
+    this.selectionHighlightGroup.visible = true;
+  }
+
+  getSelectedPlacedPart() {
+    return this.placedParts.find((p) => p.id === this.selectedPartId) || null;
   }
 
   _buildElectronPool() {
@@ -290,10 +376,9 @@ export class ElectricalStation {
     const snapMetal = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.16, metalness: 0.94 });
     const copperTrace = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.9 });
 
-    // Molded Snap-Strip Base Body
     const bodyW = len + 0.11;
     const bodyH = 0.028;
-    const bodyD = type === 'battery' ? 0.16 : 0.105;
+    const bodyD = type === 'battery' ? 0.155 : 0.105;
     const bodyMat = new THREE.MeshStandardMaterial({
       color: spec.color,
       roughness: 0.32,
@@ -305,11 +390,15 @@ export class ElectricalStation {
     baseStrip.castShadow = true;
     group.add(baseStrip);
 
-    // Metallic Snap Rivets at each peg position
+    // Metallic Snap Rivets & Top Stacking Studs at each peg position so wires visibly snap on top!
     for (let i = 0; i < spec.span; i++) {
-      const rivet = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.034, 16), snapMetal);
-      rivet.position.set(i * this.pitch, 0.017, 0);
+      const rivet = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.034, 16), snapMetal);
+      rivet.position.set(i * this.pitch, 0.018, 0);
       group.add(rivet);
+
+      const topStud = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.016, 14), snapMetal);
+      topStud.position.set(i * this.pitch, 0.04, 0);
+      group.add(topStud);
     }
 
     const refs = {};
@@ -319,31 +408,37 @@ export class ElectricalStation {
       trace.position.set(len / 2, 0.032, 0);
       group.add(trace);
     } else if (type === 'battery') {
-      // Dual AA Snap Battery Holder with Red (+) at peg 0 and Black (–) at peg 1!
-      const cellGeo = new THREE.CylinderGeometry(0.028, 0.028, len + 0.04, 18);
+      // Cells offset to sides so end snap studs at x=0 (+) and x=len (–) are completely unobstructed!
+      const cellGeo = new THREE.CylinderGeometry(0.025, 0.025, len - 0.03, 18);
       const cellMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.35, metalness: 0.6 });
       const copperEnd = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.25, metalness: 0.9 });
-      [-0.036, 0.036].forEach((cz) => {
+      [-0.042, 0.042].forEach((cz) => {
         const cell = new THREE.Mesh(cellGeo, cellMat);
         cell.rotation.z = Math.PI / 2;
-        cell.position.set(len / 2, 0.048, cz);
+        cell.position.set(len / 2, 0.045, cz);
         group.add(cell);
 
-        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.0285, 0.0285, 0.045, 18), copperEnd);
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.0255, 0.0255, 0.038, 18), copperEnd);
         cap.rotation.z = Math.PI / 2;
-        cap.position.set(0.03, 0.048, cz);
+        cap.position.set(0.042, 0.045, cz);
         group.add(cap);
       });
 
-      // Red (+) terminal marker at x=0, Dark/Blue (-) marker at x=len
+      // Clear Red (+) ring at peg 0 and Blue (–) ring at peg 1!
       const plusRing = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.028, 0.028, 0.01, 16),
+        new THREE.CylinderGeometry(0.032, 0.032, 0.008, 18),
         new THREE.MeshBasicMaterial({ color: 0xef4444 })
       );
-      plusRing.position.set(0, 0.036, 0);
+      plusRing.position.set(0, 0.033, 0);
       group.add(plusRing);
+
+      const minusRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, 0.008, 18),
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+      );
+      minusRing.position.set(len, 0.033, 0);
+      group.add(minusRing);
     } else if (type === 'switch') {
-      // Slide / Toggle Knife Switch on green Snap-Circuits block!
       const slot = new THREE.Mesh(
         new THREE.BoxGeometry(0.09, 0.012, 0.036),
         new THREE.MeshBasicMaterial({ color: 0x052e16 })
@@ -476,13 +571,138 @@ export class ElectricalStation {
     this._updateGhostPreview();
   }
 
+  /**
+   * Rotates an ALREADY-PLACED piece on the pegboard by 90° around its anchor peg!
+   * Automatically skips out-of-bounds orientations near board edges so it always turns cleanly.
+   */
+  rotatePlacedPart(partId = this.selectedPartId) {
+    const part = this.placedParts.find((p) => p.id === partId);
+    if (!part) return false;
+
+    const spec = SNAP_PART_CATALOG.find((s) => s.type === part.type);
+    const span = spec ? spec.span : part.pegs.length;
+    const anchor = part.pegs[0];
+
+    let chosenOri = -1;
+    let chosenPegs = null;
+
+    // Try rotating around primary anchor peg first
+    for (let step = 1; step <= 3; step++) {
+      const candOri = ((part.orientation || 0) + step) % 4;
+      const candPegs = this._getSpanPegs(anchor.r, anchor.c, candOri, span);
+      if (candPegs) {
+        chosenOri = candOri;
+        chosenPegs = candPegs;
+        break;
+      }
+    }
+
+    // Fallback: rotate around opposite end peg if corner-locked
+    if (!chosenPegs) {
+      const altAnchor = part.pegs[part.pegs.length - 1];
+      for (let step = 1; step <= 3; step++) {
+        const candOri = ((part.orientation || 0) + step) % 4;
+        const candPegs = this._getSpanPegs(altAnchor.r, altAnchor.c, candOri, span);
+        if (candPegs) {
+          chosenOri = candOri;
+          chosenPegs = candPegs;
+          break;
+        }
+      }
+    }
+
+    if (!chosenPegs) return false;
+
+    // Remove any exact full-span duplicate at the new orientation (excluding self)
+    const dupIdx = this.placedParts.findIndex(
+      (p) => p.id !== part.id && this._isSamePegSpan(p.pegs, chosenPegs)
+    );
+    if (dupIdx >= 0) {
+      this._removePartById(this.placedParts[dupIdx].id);
+    }
+
+    part.orientation = chosenOri;
+    part.pegs = chosenPegs;
+    this._repositionPlacedPartMesh(part);
+    this._recomputeAllStackLayers();
+
+    this.selectedPartId = part.id;
+    this._updateSelectionHighlight();
+    this.audio.playClick(860, 0.24);
+    this._solveCircuitGraph();
+    return true;
+  }
+
+  /**
+   * Deletes/cuts the currently selected placed piece (or top-most piece under hovered peg) — bound to Delete/Backspace/X & Cut button!
+   */
+  deleteSelectedOrHoveredPart() {
+    if (this.selectedPartId !== null) {
+      const id = this.selectedPartId;
+      this._removePartById(id);
+      this.audio.playClick(460, 0.25);
+      return true;
+    }
+    if (this.hoverPeg) {
+      for (let i = this.placedParts.length - 1; i >= 0; i--) {
+        if (this.placedParts[i].pegs.some((pg) => pg.r === this.hoverPeg.r && pg.c === this.hoverPeg.c)) {
+          this._removePartById(this.placedParts[i].id);
+          this.audio.playClick(460, 0.25);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  _isSamePegSpan(pegsA, pegsB) {
+    if (pegsA.length !== pegsB.length) return false;
+    const fwd =
+      pegsA[0].r === pegsB[0].r &&
+      pegsA[0].c === pegsB[0].c &&
+      pegsA[pegsA.length - 1].r === pegsB[pegsB.length - 1].r &&
+      pegsA[pegsA.length - 1].c === pegsB[pegsB.length - 1].c;
+    const rev =
+      pegsA[0].r === pegsB[pegsB.length - 1].r &&
+      pegsA[0].c === pegsB[pegsB.length - 1].c &&
+      pegsA[pegsA.length - 1].r === pegsB[0].r &&
+      pegsA[pegsA.length - 1].c === pegsB[0].c;
+    return fwd || rev;
+  }
+
+  _repositionPlacedPartMesh(part) {
+    const p0 = this.pegToLocal(part.pegs[0].r, part.pegs[0].c);
+    const pLast = this.pegToLocal(part.pegs[part.pegs.length - 1].r, part.pegs[part.pegs.length - 1].c);
+    part.meshGroup.position.x = p0.x;
+    part.meshGroup.position.z = p0.z;
+    part.meshGroup.rotation.y = -Math.atan2(pLast.z - p0.z, pLast.x - p0.x);
+  }
+
+  _recomputeAllStackLayers() {
+    const pegCounts = new Map();
+    for (const part of this.placedParts) {
+      let maxBelow = 0;
+      for (const pg of part.pegs) {
+        const key = `${pg.r},${pg.c}`;
+        const cur = pegCounts.get(key) || 0;
+        if (cur > maxBelow) maxBelow = cur;
+      }
+      const layer = Math.min(3, maxBelow + 1);
+      part.meshGroup.position.y = 0.068 + (layer - 1) * 0.028;
+      for (const pg of part.pegs) {
+        const key = `${pg.r},${pg.c}`;
+        pegCounts.set(key, layer);
+      }
+    }
+  }
+
   _updateGhostPreview() {
     while (this.ghostGroup.children.length) {
       const c = this.ghostGroup.children.pop();
       if (c.geometry) c.geometry.dispose();
     }
 
-    if (!this.hoverPeg || this.selectedTool === 'remove') {
+    if (!this.hoverPeg || this.selectedTool === 'remove' || this.selectedTool === 'select') {
       this.ghostGroup.visible = false;
       return;
     }
@@ -499,24 +719,24 @@ export class ElectricalStation {
     if (!pegs) {
       const p0 = this.pegToLocal(this.hoverPeg.r, this.hoverPeg.c);
       const bad = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.04, 16), this.ghostInvalidMat);
-      bad.position.set(p0.x, 0.09, p0.z);
+      bad.position.set(p0.x, 0.11, p0.z);
       this.ghostGroup.add(bad);
       return;
     }
 
     pegs.forEach((pg) => {
       const lp = this.pegToLocal(pg.r, pg.c);
-      const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.035, 18), this.ghostMat);
-      ring.position.set(lp.x, 0.09, lp.z);
+      const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.04, 18), this.ghostMat);
+      ring.position.set(lp.x, 0.11, lp.z);
       this.ghostGroup.add(ring);
     });
 
     const pStart = this.pegToLocal(pegs[0].r, pegs[0].c);
     const pEnd = this.pegToLocal(pegs[pegs.length - 1].r, pegs[pegs.length - 1].c);
     const len = pStart.distanceTo(pEnd) + 0.09;
-    const bar = new THREE.Mesh(new RoundedBoxGeometry(len, 0.025, 0.09, 2, 0.01), this.ghostMat);
+    const bar = new THREE.Mesh(new RoundedBoxGeometry(len, 0.026, 0.09, 2, 0.01), this.ghostMat);
     bar.position.lerpVectors(pStart, pEnd, 0.5);
-    bar.position.y = 0.1;
+    bar.position.y = 0.12;
     bar.rotation.y = -Math.atan2(pEnd.z - pStart.z, pEnd.x - pStart.x);
     this.ghostGroup.add(bar);
   }
@@ -525,13 +745,28 @@ export class ElectricalStation {
     const spec = SNAP_PART_CATALOG.find((s) => s.type === this.selectedTool);
     if (!spec) return false;
 
-    const pegs = this._getSpanPegs(r, c, this.orientation, spec.span);
+    // Smart auto-fit orientation if current orientation goes off the edge of the 7x5 board!
+    let useOri = this.orientation;
+    let pegs = this._getSpanPegs(r, c, useOri, spec.span);
+    if (!pegs) {
+      for (let tryStep = 1; tryStep <= 3; tryStep++) {
+        const candOri = (this.orientation + tryStep) % 4;
+        const candPegs = this._getSpanPegs(r, c, candOri, spec.span);
+        if (candPegs) {
+          useOri = candOri;
+          this.orientation = candOri;
+          pegs = candPegs;
+          break;
+        }
+      }
+    }
+
     if (!pegs) {
       this.audio.playClick(300, 0.22);
       return false;
     }
 
-    // Only allow 1 Battery Pack at a time (if placing a new Battery, relocate the existing one cleanly!)
+    // Only 1 Battery Pack at a time (relocates cleanly if placing a new Battery)
     if (spec.type === 'battery') {
       const existingBatIdx = this.placedParts.findIndex((p) => p.type === 'battery');
       if (existingBatIdx >= 0) {
@@ -539,36 +774,15 @@ export class ElectricalStation {
       }
     }
 
-    // If an identical peg-pair already has a non-wire component, replace it cleanly; wires stack on layer 2 like real Snap Circuits!
-    const sameFootprintIdx = this.placedParts.findIndex(
-      (p) =>
-        p.pegs.length === pegs.length &&
-        p.pegs[0].r === pegs[0].r &&
-        p.pegs[0].c === pegs[0].c &&
-        p.pegs[p.pegs.length - 1].r === pegs[pegs.length - 1].r &&
-        p.pegs[p.pegs.length - 1].c === pegs[pegs.length - 1].c
-    );
+    // Replace ONLY if an existing part spans the EXACT same pegs (both endpoints identical);
+    // sharing ONE endpoint peg stacks & connects cleanly like real Snap Circuits!
+    const sameFootprintIdx = this.placedParts.findIndex((p) => this._isSamePegSpan(p.pegs, pegs));
     if (sameFootprintIdx >= 0) {
       this._removePartById(this.placedParts[sameFootprintIdx].id);
     }
 
-    // Stack height layer based on how many parts already touch these pegs (just like Snap Circuits Level 1 & Level 2!)
-    let maxTouching = 0;
-    for (const pg of pegs) {
-      const count = this.placedParts.filter((part) =>
-        part.pegs.some(( x ) => x.r === pg.r && x.c === pg.c)
-      ).length;
-      if (count > maxTouching) maxTouching = count;
-    }
-    const layer = Math.min(3, maxTouching + 1);
-
     const id = this.nextPartId++;
-    const meshGroup = this._createSnapModuleMesh(spec.type, layer, false);
-    const p0 = this.pegToLocal(pegs[0].r, pegs[0].c);
-    const pLast = this.pegToLocal(pegs[pegs.length - 1].r, pegs[pegs.length - 1].c);
-    meshGroup.position.x = p0.x;
-    meshGroup.position.z = p0.z;
-    meshGroup.rotation.y = -Math.atan2(pLast.z - p0.z, pLast.x - p0.x);
+    const meshGroup = this._createSnapModuleMesh(spec.type, 1, false);
 
     meshGroup.traverse((ch) => {
       if (ch.isMesh) {
@@ -579,15 +793,24 @@ export class ElectricalStation {
 
     this.placedMeshesGroup.add(meshGroup);
 
-    this.placedParts.push({
+    const newPart = {
       id,
       type: spec.type,
       label: spec.label,
+      orientation: useOri,
       pegs,
-      isClosed: spec.type === 'switch' ? false : true, // Switches start OFF so students flip them ON to test!
+      isClosed: spec.type === 'switch' ? false : true,
       energizedCurrent: 0,
       meshGroup
-    });
+    };
+
+    this.placedParts.push(newPart);
+    this._repositionPlacedPartMesh(newPart);
+    this._recomputeAllStackLayers();
+
+    this.selectedPartId = id;
+    this._updateSelectionHighlight();
+    this._updateGhostPreview();
 
     this.audio.playClick(960, 0.28);
     this._solveCircuitGraph();
@@ -606,6 +829,13 @@ export class ElectricalStation {
     });
     this.placedMeshesGroup.remove(part.meshGroup);
     this.placedParts.splice(idx, 1);
+
+    if (this.selectedPartId === id) {
+      this.selectedPartId =
+        this.placedParts.length > 0 ? this.placedParts[this.placedParts.length - 1].id : null;
+    }
+    this._recomputeAllStackLayers();
+    this._updateSelectionHighlight();
     this._solveCircuitGraph();
   }
 
@@ -656,7 +886,6 @@ export class ElectricalStation {
     const posNode = nodeIdx(battery.pegs[0]);
     const negNode = nodeIdx(battery.pegs[1]);
 
-    // Build resistive edges
     const edges = [];
     for (const part of this.placedParts) {
       if (part.type === 'battery') continue;
@@ -683,7 +912,6 @@ export class ElectricalStation {
           });
         }
       } else {
-        // Any Load (White Light, Red Light, Blue Light, Motor Fan, Alarm Siren)
         edges.push({
           part,
           u: nodeIdx(part.pegs[0]),
@@ -695,7 +923,6 @@ export class ElectricalStation {
       }
     }
 
-    // Check reachability from posNode to negNode via BFS
     const adj = Array.from({ length: N }, () => []);
     edges.forEach((e) => {
       adj[e.u].push({ to: e.v, R: e.R });
@@ -718,13 +945,12 @@ export class ElectricalStation {
     if (!visited[negNode]) {
       const hasOpenSwitch = this.placedParts.some((p) => p.type === 'switch' && !p.isClosed);
       this.statusMessage = hasOpenSwitch
-        ? 'OPEN CIRCUIT — Click the green Switch (🎛️) to turn it ON and close the loop!'
+        ? 'OPEN CIRCUIT — Click your green Switch (🎛️) on the board (or "Switch ON") to close the loop!'
         : 'OPEN CIRCUIT — Connect Snap Wires from Battery (+) through a Load back to Battery (–)!';
       this._syncAudioOutputs();
       return;
     }
 
-    // Check if there is a zero-load SHORT CIRCUIT path (only wires/switches from + to -)
     const shortVis = new Array(N).fill(false);
     const sQueue = [posNode];
     shortVis[posNode] = true;
@@ -746,7 +972,6 @@ export class ElectricalStation {
       return;
     }
 
-    // Solve Nodal Voltages (G * V = B) with V[posNode] = 9V, V[negNode] = 0V, weak leakage 1e-6 for floating islands
     const A = Array.from({ length: N }, () => new Array(N).fill(0));
     const B = new Array(N).fill(0);
 
@@ -759,7 +984,6 @@ export class ElectricalStation {
       A[e.v][e.u] -= g;
     });
 
-    // Enforce Dirichlet boundary conditions at Battery (+) = 9V and Battery (–) = 0V
     for (let j = 0; j < N; j++) {
       A[posNode][j] = 0;
       A[negNode][j] = 0;
@@ -834,24 +1058,20 @@ export class ElectricalStation {
     this.audio.updateCircuitOutputs({ sirenActive: sirenOn, motorActive: fanOn });
   }
 
-  /**
-   * Optional 1-click Demo Starter Circuit if teacher/student wants an example, while Reset clears the board!
-   */
   loadStarterExample() {
     this.clearBoard();
     const prevTool = this.selectedTool;
     const prevOri = this.orientation;
 
-    // Simple rectangle: Battery at (1,1)->(3,1) using 2-snap + wires + Switch + White Light + Fan in parallel!
     const steps = [
-      ['battery', 1, 1, 1],     // B1 vertical (1,1) -> (2,1)
-      ['wire2', 2, 1, 1],       // vertical (2,1) -> (3,1)
-      ['switch', 1, 1, 0],      // S1 horizontal top (1,1) -> (1,2)
-      ['wire3', 1, 2, 0],       // horizontal top (1,2) -> (1,4)
-      ['light_red', 1, 4, 1],   // Red LED vertical (1,4) -> (2,4)
-      ['wire2', 2, 4, 1],       // vertical (2,4) -> (3,4)
-      ['wire3', 3, 1, 0],       // bottom return (3,1) -> (3,3)
-      ['wire2', 3, 3, 0]        // bottom return (3,3) -> (3,4)
+      ['battery', 1, 1, 1],
+      ['wire2', 2, 1, 1],
+      ['switch', 1, 1, 0],
+      ['wire3', 1, 2, 0],
+      ['light_red', 1, 4, 1],
+      ['wire2', 2, 4, 1],
+      ['wire3', 3, 1, 0],
+      ['wire2', 3, 3, 0]
     ];
     for (const [tool, r, c, ori] of steps) {
       this.selectedTool = tool;
@@ -866,66 +1086,150 @@ export class ElectricalStation {
     while (this.placedParts.length > 0) {
       this._removePartById(this.placedParts[0].id);
     }
+    this.selectedPartId = null;
+    this._updateSelectionHighlight();
     this._solveCircuitGraph();
   }
 
-  onPointerDown(hit) {
+  /**
+   * Right-clicking any placed 3D piece rotates it 90° in-place immediately!
+   */
+  onRightClick(raycaster) {
+    const hits = raycaster.intersectObjects(this.interactables, false);
+    const partHit = hits.find((h) => h.object.userData?.placedPartId !== undefined);
+    if (partHit) {
+      return this.rotatePlacedPart(partHit.object.userData.placedPartId);
+    }
+    if (this.selectedPartId !== null) {
+      return this.rotatePlacedPart(this.selectedPartId);
+    }
+    this.rotateOrientation();
+    return true;
+  }
+
+  onPointerDown(hit, raycaster) {
     const ud = hit?.object?.userData;
-    if (!ud) return false;
 
     // 1. Clicking a part inside the 3D Kit Organizer selects that part for placement!
-    if (ud.traySelectType) {
+    if (ud?.traySelectType) {
       this.selectTool(ud.traySelectType);
       this.audio.playClick(780, 0.2);
       return true;
     }
 
-    // 2. Clicking an already-placed part on the pegboard:
-    if (ud.placedPartId !== undefined) {
-      const part = this.placedParts.find((p) => p.id === ud.placedPartId);
-      if (!part) return false;
+    const pegInfo = this.getPegInfoFromRay(raycaster);
+    const clickedPlacedId = ud?.placedPartId;
+    const clickedPart =
+      clickedPlacedId !== undefined ? this.placedParts.find((p) => p.id === clickedPlacedId) : null;
 
-      if (this.selectedTool === 'remove') {
-        this._removePartById(part.id);
+    // 2. Cut / Delete Tool Mode ('remove'): clicking any placed piece or peg removes it!
+    if (this.selectedTool === 'remove') {
+      if (clickedPart) {
+        this._removePartById(clickedPart.id);
         this.audio.playClick(480, 0.25);
         return true;
       }
-
-      // Clicking a placed Switch toggles it ON/OFF!
-      if (part.type === 'switch') {
-        part.isClosed = !part.isClosed;
-        this._updateSwitchVisual(part);
-        this.audio.playClick(part.isClosed ? 950 : 520, 0.3);
-        this._solveCircuitGraph();
-        return true;
-      }
-
-      // Clicking any other placed part when not holding a wire removes it back to the tray so swapping loads is 1-click easy!
-      if (!this.selectedTool.startsWith('wire')) {
-        this._removePartById(part.id);
-        this.audio.playClick(520, 0.22);
-        return true;
-      }
-    }
-
-    // 3. Clicking a Peg on the 7×5 Pegboard snaps the currently selected part onto that peg!
-    if (ud.pegR !== undefined && ud.pegC !== undefined) {
-      if (this.selectedTool === 'remove') {
-        // Remove top-most part touching this peg
+      if (pegInfo) {
         for (let i = this.placedParts.length - 1; i >= 0; i--) {
-          if (this.placedParts[i].pegs.some((pg) => pg.r === ud.pegR && pg.c === ud.pegC)) {
+          if (this.placedParts[i].pegs.some((pg) => pg.r === pegInfo.r && pg.c === pegInfo.c)) {
             this._removePartById(this.placedParts[i].id);
             this.audio.playClick(480, 0.24);
-            break;
+            return true;
           }
         }
+      }
+      return false;
+    }
+
+    // 3. Select / Turn Placed Piece Mode ('select'):
+    //    Clicking a Switch toggles it & selects it; clicking any other placed piece selects & rotates it 90°!
+    if (this.selectedTool === 'select') {
+      const targetPart =
+        clickedPart ||
+        (pegInfo
+          ? [...this.placedParts]
+              .reverse()
+              .find((p) => p.pegs.some((pg) => pg.r === pegInfo.r && pg.c === pegInfo.c))
+          : null);
+      if (targetPart) {
+        if (targetPart.type === 'switch' && (!pegInfo || pegInfo.distToPeg > 0.055)) {
+          targetPart.isClosed = !targetPart.isClosed;
+          this._updateSwitchVisual(targetPart);
+          this.selectedPartId = targetPart.id;
+          this._updateSelectionHighlight();
+          this.audio.playClick(targetPart.isClosed ? 950 : 520, 0.3);
+          this._solveCircuitGraph();
+          return true;
+        }
+        this.selectedPartId = targetPart.id;
+        this.rotatePlacedPart(targetPart.id);
         return true;
       }
-      this.placePartAt(ud.pegR, ud.pegC);
+      return false;
+    }
+
+    // 4. Active Placement Tool (wire2, wire3, battery, switch, lights, fan, siren):
+    //    - Clicking the middle knob of a placed Switch always toggles it ON/OFF.
+    //    - Clicking an existing Battery while holding 'battery' rotates the Battery 90° in-place.
+    //    - Clicking the center body of a same-type part (or re-clicking the exact same footprint) rotates it 90° in-place.
+    //    - Clicking on/near ANY peg while holding a Wire or different part ALWAYS snaps & connects onto that peg
+    //      (including Battery (+) and (–) terminals and Load terminals) with zero hang-ups!
+    if (clickedPart?.type === 'switch' && (!pegInfo || pegInfo.distToPeg > 0.068)) {
+      clickedPart.isClosed = !clickedPart.isClosed;
+      this._updateSwitchVisual(clickedPart);
+      this.selectedPartId = clickedPart.id;
+      this._updateSelectionHighlight();
+      this.audio.playClick(clickedPart.isClosed ? 950 : 520, 0.3);
+      this._solveCircuitGraph();
+      return true;
+    }
+
+    if (this.selectedTool === 'battery' && clickedPart?.type === 'battery') {
+      this.selectedPartId = clickedPart.id;
+      this.rotatePlacedPart(clickedPart.id);
+      return true;
+    }
+
+    if (
+      clickedPart &&
+      clickedPart.type === this.selectedTool &&
+      (!pegInfo || pegInfo.distToPeg > 0.064)
+    ) {
+      this.selectedPartId = clickedPart.id;
+      this.rotatePlacedPart(clickedPart.id);
+      return true;
+    }
+
+    if (pegInfo) {
+      const spec = SNAP_PART_CATALOG.find((s) => s.type === this.selectedTool);
+      if (spec) {
+        const candPegs = this._getSpanPegs(pegInfo.r, pegInfo.c, this.orientation, spec.span);
+        if (candPegs) {
+          const exactSamePart = this.placedParts.find(
+            (p) => p.type === this.selectedTool && this._isSamePegSpan(p.pegs, candPegs)
+          );
+          if (exactSamePart) {
+            this.selectedPartId = exactSamePart.id;
+            this.rotatePlacedPart(exactSamePart.id);
+            return true;
+          }
+        }
+      }
+      this.placePartAt(pegInfo.r, pegInfo.c);
       return true;
     }
 
     return false;
+  }
+
+  onHoverRay(raycaster) {
+    const info = this.getPegInfoFromRay(raycaster);
+    if (!info) {
+      this.onHoverPeg(null, null);
+      return false;
+    }
+    this.onHoverPeg(info.r, info.c);
+    return true;
   }
 
   onHoverPeg(r, c) {
@@ -969,7 +1273,6 @@ export class ElectricalStation {
   }
 
   update(dt, elapsed) {
-    // Animate energized loads (White/Red/Blue Lights, Spinning Motor Fan, Wailing Siren)
     for (const part of this.placedParts) {
       const powered = part.energizedCurrent > 0.04;
       const refs = part.meshGroup.userData.refs;
@@ -994,7 +1297,6 @@ export class ElectricalStation {
       }
     }
 
-    // Stream glowing electron beads along all energized circuit segments!
     const segCount = this.energizedSegments.length;
     this.electronBeads.forEach((b, idx) => {
       if (segCount === 0) {

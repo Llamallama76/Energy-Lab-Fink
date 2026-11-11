@@ -154,10 +154,10 @@ export const STATIONS_META = [
     benchmarkSummary:
       'Electricity flows only through a complete closed loop and transforms into light, sound, heat, and mechanical motion.',
     howToSteps: [
-      'Your 7×5 Snap-Circuits pegboard starts empty so you can invent your own circuit! Pick parts from the Parts Kit (or click them in the 3D organizer tray).',
-      'Snap down a Battery Pack, a Switch, Blue Wire strips (use Rotate 90° or press R to turn parts), and your choice of loads: White, Red, or Blue Lights, a Motor Fan, or an Alarm Siren!',
-      'Connect a complete closed loop from Battery (+) back to Battery (–), then click your Switch on the board (or "Flip Switch ON/OFF") to test it!',
-      'Swap loads or wire two loads side-by-side to compare single loads, series loops, and parallel branches.'
+      'Your 7×5 Snap-Circuits pegboard starts empty! Pick parts from the Parts Kit (or click them in the 3D organizer tray) and click any peg to snap them down.',
+      'Connect Blue Wires directly onto the Battery (+) and (–) pegs, a Switch, and your choice of loads: White, Red, or Blue Lights, Motor Fan, or Alarm Siren.',
+      'Need to adjust a piece already on the board? Click "↻ Turn Placed (T)" (or Right-Click a piece / use "👆 Select / Turn") to rotate it 90°, and press Delete / Backspace (or "✂️ Cut") to remove any piece!',
+      'Flip your Switch ON to watch electricity flow through your closed loop and power your loads!'
     ],
     inquiries: [
       'What must be true about the path from Battery (+) to Battery (–) before any light, fan, or siren will turn on?',

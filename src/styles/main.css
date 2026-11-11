@@ -314,13 +314,13 @@ body {
   color: var(--text-secondary);
 }
 
-/* Station Investigation Right Dock */
+/* Station Investigation Right Dock (bottom: 68px keeps lower-right completely clear of Netlify badge!) */
 .station-dock {
   position: absolute;
   top: 72px;
   right: 14px;
-  bottom: 16px;
-  width: 378px;
+  bottom: 68px;
+  width: 382px;
   max-width: calc(100vw - 28px);
   z-index: 25;
   display: flex;
@@ -342,8 +342,35 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 16px 12px;
+  padding: 13px 15px 11px;
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.station-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.header-reset-btn {
+  appearance: none;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(244, 63, 94, 0.42);
+  background: rgba(244, 63, 94, 0.14);
+  color: #ffe4e6;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.header-reset-btn:hover {
+  background: rgba(244, 63, 94, 0.28);
+  border-color: rgba(244, 63, 94, 0.65);
 }
 
 .benchmark-row {
@@ -366,7 +393,7 @@ body {
 
 .station-header h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15.5px;
   font-weight: 700;
   letter-spacing: -0.015em;
 }
@@ -596,9 +623,14 @@ input[type='range'] {
   transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
 
-.chip-btn:hover {
+.chip-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
   color: var(--text-primary);
+}
+
+.chip-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .chip-btn.compact {

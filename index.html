@@ -93,9 +93,14 @@
             <h2 id="hud-station-title">Station Title</h2>
             <p id="hud-station-subtitle" class="station-subtitle"></p>
           </div>
-          <button id="btn-collapse-hud" class="icon-btn" type="button" title="Minimize/Expand Panel" aria-label="Minimize or Expand Panel">
-            <span id="collapse-glyph">–</span>
-          </button>
+          <div class="station-header-actions">
+            <button id="btn-reset-station" class="header-reset-btn" type="button" title="Reset Station Apparatus">
+              ⟲ Reset
+            </button>
+            <button id="btn-collapse-hud" class="icon-btn" type="button" title="Minimize/Expand Panel" aria-label="Minimize or Expand Panel">
+              <span id="collapse-glyph">–</span>
+            </button>
+          </div>
         </div>
 
         <div id="station-dock-body" class="dock-scroll-body">
@@ -121,13 +126,6 @@
               Check Florida Benchmark Explanation
             </button>
             <p id="science-insight-text" class="insight-body hidden"></p>
-          </div>
-
-          <!-- 4. Station Reset Button -->
-          <div class="station-footer">
-            <button id="btn-reset-station" class="reset-btn" type="button">
-              ⟲ Reset Apparatus
-            </button>
           </div>
         </div>
       </aside>

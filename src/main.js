@@ -193,6 +193,7 @@ class OmniEnergyLabApp {
     };
 
     this.canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // Right-click is handled by contextmenu for in-place piece rotation
       this.audio.ensureContext();
       updateNDC(e);
       this.raycaster.setFromCamera(this.pointerNDC, this.camera);
@@ -207,9 +208,20 @@ class OmniEnergyLabApp {
         }
       } else {
         const activeStation = this.stations.get(this.activeStationId);
-        if (activeStation && activeStation.interactables.length > 0) {
-          const hits = this.raycaster.intersectObjects(activeStation.interactables, false);
-          if (hits.length > 0) {
+        if (activeStation) {
+          const hits =
+            activeStation.interactables.length > 0
+              ? this.raycaster.intersectObjects(activeStation.interactables, false)
+              : [];
+
+          // Electrical pegboard uses plane-based peg detection so wires ALWAYS connect even over placed parts!
+          if (this.activeStationId === 'electrical') {
+            const handled = activeStation.onPointerDown(hits[0] || null, this.raycaster);
+            if (handled) {
+              this._syncStationControlsValues();
+              return;
+            }
+          } else if (hits.length > 0) {
             const handled = activeStation.onPointerDown(hits[0], this.raycaster);
             if (handled) {
               this.isDragging3D = true;
@@ -218,6 +230,21 @@ class OmniEnergyLabApp {
               return;
             }
           }
+        }
+      }
+    });
+
+    // Right-clicking any placed piece on the Electrical pegboard turns it 90° in-place!
+    this.canvas.addEventListener('contextmenu', (e) => {
+      if (this.activeStationId !== 'electrical') return;
+      e.preventDefault();
+      this.audio.ensureContext();
+      updateNDC(e);
+      this.raycaster.setFromCamera(this.pointerNDC, this.camera);
+      const st = this.stations.get('electrical');
+      if (st && typeof st.onRightClick === 'function') {
+        if (st.onRightClick(this.raycaster)) {
+          this._syncStationControlsValues();
         }
       }
     });
@@ -234,23 +261,19 @@ class OmniEnergyLabApp {
         return;
       }
 
-      // Hover cursor affordance + Snap-Circuits pegboard ghost preview
+      // Hover cursor affordance + Snap-Circuits pegboard plane ghost preview
       if (this.activeStationId !== 'overview') {
         const st = this.stations.get(this.activeStationId);
-        if (st && st.interactables.length > 0) {
-          const hits = this.raycaster.intersectObjects(st.interactables, false);
-          this.canvas.style.cursor = hits.length > 0 ? 'pointer' : 'grab';
-
-          if (this.activeStationId === 'electrical' && typeof st.onHoverPeg === 'function') {
-            const pegHit = hits.find(
-              (h) => h.object.userData.pegR !== undefined && h.object.userData.pegC !== undefined
-            );
-            if (pegHit) {
-              st.onHoverPeg(pegHit.object.userData.pegR, pegHit.object.userData.pegC);
-            } else {
-              st.onHoverPeg(null, null);
-            }
+        if (st) {
+          const hits =
+            st.interactables.length > 0
+              ? this.raycaster.intersectObjects(st.interactables, false)
+              : [];
+          let overPeg = false;
+          if (this.activeStationId === 'electrical' && typeof st.onHoverRay === 'function') {
+            overPeg = st.onHoverRay(this.raycaster);
           }
+          this.canvas.style.cursor = hits.length > 0 || overPeg ? 'pointer' : 'grab';
         }
       } else {
         const hits = this.raycaster.intersectObjects(this.labEnv.clickableBenchTargets, false);
@@ -268,14 +291,39 @@ class OmniEnergyLabApp {
       }
     });
 
-    // Keyboard shortcut 'R' to rotate Snap-Circuits parts on Station 6
+    // Keyboard shortcuts on Station 6:
+    // - Delete / Backspace / X: Cut & remove selected or hovered piece
+    // - T: Turn already-placed piece 90° on the board
+    // - R: Rotate new-part placement orientation (or turn selected piece if in Select mode)
+    // - Escape: Switch to Select / Turn Placed Piece mode
     window.addEventListener('keydown', (e) => {
-      if ((e.key === 'r' || e.key === 'R') && this.activeStationId === 'electrical') {
-        const st = this.stations.get('electrical');
-        if (st) {
-          st.rotateOrientation();
+      if (this.activeStationId !== 'electrical') return;
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      const st = this.stations.get('electrical');
+      if (!st) return;
+
+      if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'x' || e.key === 'X') {
+        e.preventDefault();
+        this.audio.ensureContext();
+        if (st.deleteSelectedOrHoveredPart()) {
           this._syncStationControlsValues();
         }
+      } else if (e.key === 't' || e.key === 'T') {
+        this.audio.ensureContext();
+        if (st.rotatePlacedPart()) {
+          this._syncStationControlsValues();
+        }
+      } else if (e.key === 'r' || e.key === 'R') {
+        this.audio.ensureContext();
+        if (st.selectedTool === 'select' || (!st.hoverPeg && st.selectedPartId !== null)) {
+          st.rotatePlacedPart();
+        } else {
+          st.rotateOrientation();
+        }
+        this._syncStationControlsValues();
+      } else if (e.key === 'Escape') {
+        st.selectTool('select');
+        this._syncStationControlsValues();
       }
     });
   }
@@ -1024,9 +1072,14 @@ class OmniEnergyLabApp {
         <div class="slider-row">
           <div class="slider-label-line">
             <span>Ramp Release Height</span>
-            <span id="lbl-ramp-h" class="slider-val">${Math.round(15 + st.rampHeightNorm * 35)} cm</span>
+            <span id="lbl-ramp-h" class="slider-val">${st.getRampHeightCm()} cm</span>
           </div>
-          <input id="rng-ramp-h" type="range" min="25" max="100" value="${Math.round(st.rampHeightNorm * 100)}" />
+          <input id="rng-ramp-h" type="range" min="0" max="100" value="${Math.round(st.rampHeightNorm * 100)}" />
+        </div>
+        <div class="btn-grid-3">
+          <button class="chip-btn ${st.rampHeightNorm <= 0.15 ? 'active' : ''}" data-ramp-preset="5" type="button">Low (8 cm)</button>
+          <button class="chip-btn ${st.rampHeightNorm > 0.15 && st.rampHeightNorm < 0.75 ? 'active' : ''}" data-ramp-preset="42" type="button">Med (23 cm)</button>
+          <button class="chip-btn ${st.rampHeightNorm >= 0.75 ? 'active' : ''}" data-ramp-preset="100" type="button">High (46 cm)</button>
         </div>
         <button id="btn-launch-ramp" class="action-btn amber" type="button">🎳 Release Ball Down Ramp</button>
         <div class="telemetry-grid">
@@ -1087,8 +1140,20 @@ class OmniEnergyLabApp {
     const rRamp = box.querySelector('#rng-ramp-h');
     rRamp?.addEventListener('input', () => {
       st.rampHeightNorm = Number(rRamp.value) / 100;
-      box.querySelector('#lbl-ramp-h').textContent = `${Math.round(15 + st.rampHeightNorm * 35)} cm`;
+      box.querySelector('#lbl-ramp-h').textContent = `${st.getRampHeightCm()} cm`;
+      box.querySelectorAll('[data-ramp-preset]').forEach((b) => {
+        const p = Number(b.dataset.rampPreset) / 100;
+        b.classList.toggle('active', Math.abs(p - st.rampHeightNorm) < 0.08);
+      });
       st._resetRampScene();
+    });
+    box.querySelectorAll('[data-ramp-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        st.rampHeightNorm = Number(btn.dataset.rampPreset) / 100;
+        st._resetRampScene();
+        this.audio.playClick(680, 0.2);
+        this._renderStationControls('mechanical');
+      });
     });
     box.querySelector('#btn-launch-ramp')?.addEventListener('click', () => st.launchRampBall());
 
@@ -1240,6 +1305,7 @@ class OmniEnergyLabApp {
     const switches = st.placedParts.filter((p) => p.type === 'switch');
     const hasSwitch = switches.length > 0;
     const anySwitchClosed = switches.some((s) => s.isClosed);
+    const selPart = st.getSelectedPlacedPart();
 
     const bannerClass = st.shortCircuit ? 'danger' : st.circuitClosed ? 'ok' : 'warn';
 
@@ -1260,12 +1326,25 @@ class OmniEnergyLabApp {
             }
           </button>
           <button id="btn-rotate-part" class="chip-btn" type="button" title="Keyboard shortcut: R">
-            ↻ Rotate: ${oriLabels[st.orientation]}
+            ↻ New Dir: ${oriLabels[st.orientation]} (R)
           </button>
         </div>
 
         <div class="slider-label-line">
-          <span>1. Pick a Part (or Click 3D Kit) → 2. Click Pegs:</span>
+          <span>Selected Piece: <strong>${selPart ? selPart.label : 'None'}</strong></span>
+          <span style="font-size:10.5px;color:#94a3b8">Right-Click = Turn · Del = Cut</span>
+        </div>
+        <div class="btn-grid-2">
+          <button id="btn-turn-placed" class="chip-btn" type="button" ${!selPart ? 'disabled' : ''} title="Turn selected placed piece 90° on the board (Shortcut: T or Right-Click)">
+            ↻ Turn Placed (T)
+          </button>
+          <button id="btn-cut-placed" class="chip-btn danger-tool" type="button" ${!selPart ? 'disabled' : ''} title="Cut / Delete selected piece (Shortcut: Delete, Backspace, or X)">
+            ✂️ Cut Piece (Del)
+          </button>
+        </div>
+
+        <div class="slider-label-line">
+          <span>1. Pick a Part (or Tool) → 2. Click Any Peg:</span>
         </div>
         <div class="parts-palette-grid">
           ${SNAP_PART_CATALOG.map(
@@ -1280,12 +1359,22 @@ class OmniEnergyLabApp {
             </button>`
           ).join('')}
           <button
+            class="chip-btn compact ${st.selectedTool === 'select' ? 'active' : ''}"
+            data-tool="select"
+            type="button"
+            title="Click any placed piece on the board to select & rotate it 90°"
+          >
+            <span>👆</span>
+            <span>Select / Turn</span>
+          </button>
+          <button
             class="chip-btn compact danger-tool ${st.selectedTool === 'remove' ? 'active' : ''}"
             data-tool="remove"
             type="button"
+            title="Click any placed piece on the board to cut/remove it"
           >
-            <span>🗑️</span>
-            <span>Remove Part</span>
+            <span>✂️</span>
+            <span>Cut Mode</span>
           </button>
         </div>
 
@@ -1320,6 +1409,18 @@ class OmniEnergyLabApp {
     box.querySelector('#btn-rotate-part')?.addEventListener('click', () => {
       st.rotateOrientation();
       this._renderStationControls('electrical');
+    });
+
+    box.querySelector('#btn-turn-placed')?.addEventListener('click', () => {
+      if (st.rotatePlacedPart()) {
+        this._renderStationControls('electrical');
+      }
+    });
+
+    box.querySelector('#btn-cut-placed')?.addEventListener('click', () => {
+      if (st.deleteSelectedOrHoveredPart()) {
+        this._renderStationControls('electrical');
+      }
     });
 
     box.querySelector('#btn-flip-switch')?.addEventListener('click', () => {
